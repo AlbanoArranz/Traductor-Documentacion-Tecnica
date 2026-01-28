@@ -7,7 +7,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import projects, pages, glossary, export, jobs, settings
+from app.api import projects, pages, glossary, export, jobs, settings, global_glossary
 
 app = FastAPI(
     title="NB7X Translator API",
@@ -28,6 +28,7 @@ app.add_middleware(
 app.include_router(projects.router, prefix="/projects", tags=["projects"])
 app.include_router(pages.router, prefix="/projects/{project_id}/pages", tags=["pages"])
 app.include_router(glossary.router, prefix="/projects/{project_id}/glossary", tags=["glossary"])
+app.include_router(global_glossary.router, prefix="/glossary/global", tags=["glossary-global"])
 app.include_router(export.router, prefix="/projects/{project_id}/export", tags=["export"])
 app.include_router(jobs.router, prefix="/projects/{project_id}/jobs", tags=["jobs"])
 app.include_router(settings.router, prefix="/settings", tags=["settings"])

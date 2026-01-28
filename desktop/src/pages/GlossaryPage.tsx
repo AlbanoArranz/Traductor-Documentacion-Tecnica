@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, Trash2, Save, Wand2 } from 'lucide-react'
-import { projectsApi, glossaryApi, GlossaryEntry } from '../lib/api'
+import { projectsApi, glossaryApi, globalGlossaryApi, GlossaryEntry } from '../lib/api'
 
 export default function GlossaryPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const queryClient = useQueryClient()
+  const [tab, setTab] = useState<'global' | 'local'>('global')
   const [entries, setEntries] = useState<GlossaryEntry[]>([])
   const [hasChanges, setHasChanges] = useState(false)
 
@@ -17,9 +18,19 @@ export default function GlossaryPage() {
   })
 
   const { data: glossaryData, isLoading } = useQuery({
-    queryKey: ['glossary', projectId],
-    queryFn: () => glossaryApi.get(projectId!).then(res => res.data),
-    enabled: !!projectId,
+    queryKey: ['glossary', projectId, tab],
+    queryFn: async () => {
+      if (tab === 'global') {
+        return globalGlossaryApi.get().then(res => res.data)
+      }
+      return glossaryApi.get(projectId!).then(res => res.data)
+    },
+    enabled: tab === 'global' || !!projectId,
+  })
+
+  const { data: globalGlossaryData } = useQuery({
+    queryKey: ['glossary-global'],
+    queryFn: () => globalGlossaryApi.get().then(res => res.data),
   })
 
   useEffect(() => {
@@ -29,10 +40,26 @@ export default function GlossaryPage() {
   }, [glossaryData, hasChanges])
 
   const saveMutation = useMutation({
-    mutationFn: () => glossaryApi.update(projectId!, entries),
+    mutationFn: async () => {
+      if (tab === 'global') {
+        return globalGlossaryApi.update(entries)
+      }
+
+      const globalSrcTerms = new Set((globalGlossaryData?.entries || []).map(e => e.src_term))
+      const duplicate = entries.find(e => globalSrcTerms.has(e.src_term))
+      if (duplicate) {
+        throw new Error(`Term already exists in global glossary: ${duplicate.src_term}`)
+      }
+      return glossaryApi.update(projectId!, entries)
+    },
     onSuccess: () => {
       setHasChanges(false)
-      queryClient.invalidateQueries({ queryKey: ['glossary', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['glossary', projectId, tab] })
+      queryClient.invalidateQueries({ queryKey: ['glossary-global'] })
+    },
+    onError: (err: any) => {
+      const msg = err?.message || 'Error al guardar glosario'
+      alert(msg)
     },
   })
 
@@ -71,6 +98,27 @@ export default function GlossaryPage() {
           <h1 className="text-xl font-semibold">Glosario - {project?.name}</h1>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mr-2">
+            <button
+              onClick={() => {
+                setHasChanges(false)
+                setTab('global')
+              }}
+              className={`px-3 py-2 border rounded-lg ${tab === 'global' ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
+            >
+              General
+            </button>
+            <button
+              onClick={() => {
+                setHasChanges(false)
+                setTab('local')
+              }}
+              disabled={!projectId}
+              className={`px-3 py-2 border rounded-lg ${tab === 'local' ? 'bg-gray-100' : 'hover:bg-gray-50'} disabled:opacity-50`}
+            >
+              Este documento
+            </button>
+          </div>
           <button
             onClick={() => applyMutation.mutate()}
             disabled={applyMutation.isPending}

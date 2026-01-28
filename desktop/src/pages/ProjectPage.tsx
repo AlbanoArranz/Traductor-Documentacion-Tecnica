@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Play, Download, Book, RefreshCw, Lock, Unlock, Trash2 } from 'lucide-react'
-import { projectsApi, pagesApi, jobsApi, exportApi, glossaryApi, TextRegion } from '../lib/api'
+import { projectsApi, pagesApi, jobsApi, exportApi, glossaryApi, globalGlossaryApi, TextRegion } from '../lib/api'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -26,6 +26,7 @@ export default function ProjectPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [confirmDeleteFiltered, setConfirmDeleteFiltered] = useState(false)
   const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{ current: number; total: number } | null>(null)
+  const [addGlossaryScope, setAddGlossaryScope] = useState<'global' | 'local'>('global')
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -647,28 +648,64 @@ export default function ProjectPage() {
                   <span className="text-sm text-gray-500">Menor = debajo, Mayor = encima</span>
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Añadir al glosario en
+                </label>
+                <select
+                  value={addGlossaryScope}
+                  onChange={(e) => setAddGlossaryScope(e.target.value as 'global' | 'local')}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="global">General (todos los documentos)</option>
+                  <option value="local">Este documento</option>
+                </select>
+              </div>
             </div>
             <div className="p-4 border-t flex justify-between">
               <button
                 onClick={async () => {
                   if (selectedRegion.src_text && selectedRegion.tgt_text) {
                     try {
-                      console.log('Añadiendo al glosario:', selectedRegion.src_text, '->', selectedRegion.tgt_text)
-                      const glossary = await glossaryApi.get(projectId!)
-                      const entries = glossary.data.entries || []
-                      const exists = entries.some(e => e.src_term === selectedRegion.src_text)
-                      if (!exists) {
-                        entries.push({
+                      const global = await globalGlossaryApi.get()
+                      const globalEntries = global.data.entries || []
+                      const existsInGlobal = globalEntries.some(e => e.src_term === selectedRegion.src_text)
+
+                      if (addGlossaryScope === 'local' && existsInGlobal) {
+                        alert('Este término ya existe en el glosario general')
+                        return
+                      }
+
+                      if (addGlossaryScope === 'global') {
+                        const exists = globalEntries.some(e => e.src_term === selectedRegion.src_text)
+                        if (exists) {
+                          alert('Este término ya existe en el glosario general')
+                          return
+                        }
+                        globalEntries.push({
                           src_term: selectedRegion.src_text,
                           tgt_term: selectedRegion.tgt_text,
                           locked: true,
                         })
-                        await glossaryApi.update(projectId!, entries)
-                        console.log('Glosario actualizado correctamente')
-                        alert('✓ Añadido al glosario')
-                      } else {
-                        alert('Este término ya existe en el glosario')
+                        await globalGlossaryApi.update(globalEntries)
+                        alert('✓ Añadido al glosario general')
+                        return
                       }
+
+                      const glossary = await glossaryApi.get(projectId!)
+                      const entries = glossary.data.entries || []
+                      const exists = entries.some(e => e.src_term === selectedRegion.src_text)
+                      if (exists) {
+                        alert('Este término ya existe en el glosario del documento')
+                        return
+                      }
+                      entries.push({
+                        src_term: selectedRegion.src_text,
+                        tgt_term: selectedRegion.tgt_text,
+                        locked: true,
+                      })
+                      await glossaryApi.update(projectId!, entries)
+                      alert('✓ Añadido al glosario del documento')
                     } catch (err) {
                       console.error('Error al añadir al glosario:', err)
                       alert('Error al añadir al glosario')

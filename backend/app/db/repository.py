@@ -10,6 +10,7 @@ from typing import List, Optional, Dict, Any
 
 from app.config import PROJECTS_DIR, JOBS_DIR
 from app.db.models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job
+from app.db.global_glossary_repository import GlobalGlossaryRepository
 
 
 class ProjectsRepository:
@@ -276,3 +277,4 @@ projects_repo = ProjectsRepository()
 pages_repo = PagesRepository()
 text_regions_repo = TextRegionsRepository()
 glossary_repo = GlossaryRepository()
+global_glossary_repo = GlobalGlossaryRepository()

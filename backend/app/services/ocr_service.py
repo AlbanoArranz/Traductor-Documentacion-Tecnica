@@ -3,12 +3,13 @@ Servicio de OCR usando EasyOCR.
 """
 
 import uuid
+import re
 from pathlib import Path
 from typing import List
 
 from PIL import Image
 
-from app.config import CJK_RATIO_THRESHOLD, get_min_han_ratio
+from app.config import CJK_RATIO_THRESHOLD, get_min_han_ratio, get_ocr_region_filters
 from app.db.models import TextRegion
 
 
@@ -70,11 +71,43 @@ def detect_text(image_path: Path, dpi: int) -> List[TextRegion]:
     
     regions = []
     min_han_ratio = get_min_han_ratio()
+    ocr_filters = get_ocr_region_filters()
     
     for item in result:
         bbox_points = item[0]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
         text = item[1]
         confidence = item[2]
+
+        filtered_out = False
+        for f in ocr_filters:
+            mode = f.get("mode")
+            pattern = f.get("pattern")
+            if not mode or not pattern:
+                continue
+            case_sensitive = bool(f.get("case_sensitive", False))
+            raw_value = text or ""
+            value = raw_value if case_sensitive else raw_value.lower()
+            target = pattern if case_sensitive else str(pattern).lower()
+            try:
+                if mode == "contains" and target in value:
+                    filtered_out = True
+                    break
+                if mode == "starts" and value.startswith(target):
+                    filtered_out = True
+                    break
+                if mode == "ends" and value.endswith(target):
+                    filtered_out = True
+                    break
+                if mode == "regex":
+                    flags = 0 if case_sensitive else re.IGNORECASE
+                    if re.search(str(pattern), raw_value, flags=flags):
+                        filtered_out = True
+                        break
+            except Exception:
+                continue
+
+        if filtered_out:
+            continue
         
         # Filtrar: primero descartar si casi no hay Han (ruido)
         if _han_ratio(text) < CJK_RATIO_THRESHOLD:

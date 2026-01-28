@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.db.repository import projects_repo, glossary_repo, text_regions_repo
+from app.db.repository import projects_repo, glossary_repo, text_regions_repo, global_glossary_repo
 
 router = APIRouter()
 
@@ -58,6 +58,14 @@ async def update_glossary(project_id: str, glossary: GlossaryResponse):
             status_code=400,
             detail="Refusing to overwrite non-empty glossary with empty entries",
         )
+
+    global_src_terms = {e.src_term for e in global_glossary_repo.list_all()}
+    for e in glossary.entries:
+        if e.src_term in global_src_terms:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Term already exists in global glossary: {e.src_term}",
+            )
     
     glossary_repo.replace_for_project(project_id, glossary.entries)
     
@@ -74,8 +82,16 @@ async def apply_glossary(project_id: str):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    entries = glossary_repo.list_by_project(project_id)
-    glossary_map = {e.src_term: e.tgt_term for e in entries if e.locked}
+    global_entries = global_glossary_repo.list_all()
+    glossary_map = {e.src_term: e.tgt_term for e in global_entries if e.locked}
+
+    local_entries = glossary_repo.list_by_project(project_id)
+    for e in local_entries:
+        if not e.locked:
+            continue
+        if e.src_term in glossary_map:
+            continue
+        glossary_map[e.src_term] = e.tgt_term
     
     updated_count = 0
     for page_num in range(project.page_count):

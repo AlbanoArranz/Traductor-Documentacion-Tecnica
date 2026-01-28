@@ -4,9 +4,9 @@ API endpoints para configuración.
 
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
-from app.config import get_config, save_config, DEFAULT_MIN_HAN_RATIO
+from app.config import get_config, save_config, DEFAULT_MIN_HAN_RATIO, get_ocr_region_filters
 
 router = APIRouter()
 
@@ -15,12 +15,14 @@ class SettingsResponse(BaseModel):
     deepl_api_key: Optional[str] = None
     default_dpi: int = 450
     min_han_ratio: float = DEFAULT_MIN_HAN_RATIO
+    ocr_region_filters: List[dict] = []
 
 
 class SettingsUpdate(BaseModel):
     deepl_api_key: Optional[str] = None
     default_dpi: Optional[int] = None
     min_han_ratio: Optional[float] = None
+    ocr_region_filters: Optional[List[dict]] = None
 
 
 @router.get("", response_model=SettingsResponse)
@@ -34,6 +36,7 @@ async def get_settings():
         deepl_api_key=masked_key,
         default_dpi=config.get("default_dpi", 450),
         min_han_ratio=float(config.get("min_han_ratio", DEFAULT_MIN_HAN_RATIO)),
+        ocr_region_filters=get_ocr_region_filters(),
     )
 
 
@@ -53,5 +56,8 @@ async def update_settings(settings: SettingsUpdate):
         if value > 1.0:
             value = 1.0
         config["min_han_ratio"] = value
+    if settings.ocr_region_filters is not None:
+        if isinstance(settings.ocr_region_filters, list):
+            config["ocr_region_filters"] = settings.ocr_region_filters
     save_config(config)
     return {"status": "ok"}

@@ -5,6 +5,8 @@ Configuración del backend.
 import os
 from pathlib import Path
 
+from typing import Any, Dict, List
+
 # Ruta base para datos del usuario: %APPDATA%\NB7XTranslator
 if os.name == "nt":
     APP_DATA_DIR = Path(os.environ.get("APPDATA", "")) / "NB7XTranslator"
@@ -22,6 +24,9 @@ for d in [PROJECTS_DIR, JOBS_DIR, LOGS_DIR]:
 
 # Archivo de configuración persistente
 CONFIG_FILE = APP_DATA_DIR / "config.json"
+
+# Glosario global (para todos los proyectos)
+GLOSSARY_GLOBAL_FILE = APP_DATA_DIR / "glossary_global.json"
 
 # DPI por defecto
 DEFAULT_DPI = 450
@@ -42,6 +47,31 @@ def get_config() -> dict:
         except:
             return {}
     return {}
+
+
+def get_ocr_region_filters() -> List[Dict[str, Any]]:
+    config = get_config()
+    value = config.get("ocr_region_filters", [])
+    if not isinstance(value, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        mode = str(item.get("mode", "contains"))
+        if mode not in {"contains", "starts", "ends", "regex"}:
+            continue
+        pattern = str(item.get("pattern", ""))
+        if not pattern:
+            continue
+        out.append(
+            {
+                "mode": mode,
+                "pattern": pattern,
+                "case_sensitive": bool(item.get("case_sensitive", False)),
+            }
+        )
+    return out
 
 
 def get_min_han_ratio() -> float:

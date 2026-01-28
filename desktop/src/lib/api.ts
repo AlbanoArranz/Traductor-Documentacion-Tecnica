@@ -55,6 +55,12 @@ export interface GlossaryEntry {
   locked: boolean
 }
 
+export interface OcrRegionFilter {
+  mode: 'contains' | 'starts' | 'ends' | 'regex'
+  pattern: string
+  case_sensitive?: boolean
+}
+
 export interface Job {
   id: string
   status: string
@@ -67,6 +73,7 @@ export interface Settings {
   deepl_api_key: string | null
   default_dpi: number
   min_han_ratio: number
+  ocr_region_filters?: OcrRegionFilter[]
 }
 
 export const projectsApi = {
@@ -107,6 +114,11 @@ export const glossaryApi = {
   apply: (projectId: string) => api.post(`/projects/${projectId}/glossary/apply`),
 }
 
+export const globalGlossaryApi = {
+  get: () => api.get<{ entries: GlossaryEntry[] }>(`/glossary/global`),
+  update: (entries: GlossaryEntry[]) => api.put(`/glossary/global`, { entries }),
+}
+
 export const jobsApi = {
   startRenderAll: (projectId: string) =>
     api.post<Job>(`/projects/${projectId}/jobs/render-all/async`),
@@ -125,6 +137,10 @@ export const exportApi = {
 
 export const settingsApi = {
   get: () => api.get<Settings>('/settings'),
-  update: (data: Partial<Pick<Settings, 'default_dpi' | 'min_han_ratio'>> & { deepl_api_key?: string }) =>
+  update: (
+    data: Partial<Pick<Settings, 'default_dpi' | 'min_han_ratio' | 'ocr_region_filters'>> & {
+      deepl_api_key?: string
+    }
+  ) =>
     api.put('/settings', data),
 }
