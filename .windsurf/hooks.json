@@ -1,17 +1,5 @@
 {
   "hooks": {
-    "pre_read_code": [
-      {
-        "command": "python .windsurf/hooks/guardrails.py",
-        "show_output": true
-      }
-    ],
-    "pre_write_code": [
-      {
-        "command": "python .windsurf/hooks/guardrails.py",
-        "show_output": true
-      }
-    ],
     "pre_run_command": [
       {
         "command": "python .windsurf/hooks/guardrails.py",

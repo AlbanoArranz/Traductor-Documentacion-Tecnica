@@ -146,14 +146,39 @@ logs/
 
 ## Configuración
 
-- **DeepL API Key**: Configurar en Settings de la app (se guarda en localStorage)
+- **DeepL API Key**: Configurar en Settings de la app (persistente en `%APPDATA%\\NB7XTranslator\\config.json`)
 - **DPI por defecto**: 450 (configurable: 300, 450, 600)
+- **Filtro OCR Han**: % mínimo de caracteres chinos (Han) configurable desde Settings
 
 ## Seguridad
 
 - Backend solo escucha en `127.0.0.1` (loopback)
 - CORS restringido a origen local
 - No se almacenan API keys en el código
+
+## Windsurf
+
+- Configuración y automatizaciones en `.windsurf/`
+- Workflows:
+  - `/smoke-test`
+  - `/build-backend`
+  - `/build-installer-win`
+  - `/release-checklist`
+  - `/add-skill`
+- Skills:
+  - `antivirus-false-positive-mitigation`
+  - `build-exe-pyinstaller`
+  - `configurar-windsurf-proyecto`
+  - `deps-freeze-requirements`
+  - `dxf-export-validator`
+  - `gestionar-repo-git-github`
+  - `idear-diseno`
+  - `log-collector`
+  - `manejar-errores`
+  - `planificar-implementacion`
+  - `release-packager`
+  - `skill-master`
+  - `ui-label-tweaks`
 
 ## Licencia
 

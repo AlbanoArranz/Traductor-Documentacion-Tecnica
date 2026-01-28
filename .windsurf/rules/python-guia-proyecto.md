@@ -1,6 +1,6 @@
 ---
 trigger: glob
-globs: "*.py"
+globs: "backend/**/*.py"
 description: Guía breve para cambios en código Python del proyecto (consistencia y cambios mínimos).
 labels: python,style,consistency
 author: Cascade

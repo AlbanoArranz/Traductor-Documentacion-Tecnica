@@ -192,6 +192,7 @@ Endpoints mínimos esperados:
 - `windows-packaging` → PyInstaller onefolder + electron-builder + recursos + troubleshooting Paddle.
 - `roi-cajetin-setup` → configurar ROI cajetín y pruebas.
 - `debug-ocr-quality` → heurísticas DPI 600, thresholds, agrupación de cajas.
+- `gestionar-repo-git-github` → sincronización segura Git/GitHub, limpieza de archivos grandes y verificación de .gitignore.
 
 ## 4) Memories (Windsurf Customizations)
 - Las Memories se gestionan en la UI de Windsurf (Customizations) y son por workspace; Cascade puede autogenerarlas o puedes pedir “create a memory of …”. :contentReference[oaicite:10]{index=10}
