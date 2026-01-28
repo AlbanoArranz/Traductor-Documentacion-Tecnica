@@ -1,0 +1,278 @@
+"""
+Repositorios para persistencia de datos (in-memory + JSON).
+"""
+
+import json
+import uuid
+from pathlib import Path
+from datetime import datetime
+from typing import List, Optional, Dict, Any
+
+from app.config import PROJECTS_DIR, JOBS_DIR
+from app.db.models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job
+
+
+class ProjectsRepository:
+    """Repositorio de proyectos."""
+    
+    def __init__(self):
+        self._cache: Dict[str, Project] = {}
+        self._load_all()
+    
+    def _load_all(self):
+        """Carga todos los proyectos desde disco."""
+        if not PROJECTS_DIR.exists():
+            return
+        for project_dir in PROJECTS_DIR.iterdir():
+            if project_dir.is_dir():
+                meta_path = project_dir / "meta.json"
+                if meta_path.exists():
+                    with open(meta_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        self._cache[data["id"]] = Project(
+                            id=data["id"],
+                            name=data["name"],
+                            page_count=data["page_count"],
+                            status=ProjectStatus(data.get("status", "created")),
+                            created_at=datetime.fromisoformat(data["created_at"]),
+                        )
+    
+    def _save(self, project: Project):
+        """Guarda un proyecto a disco."""
+        project_dir = PROJECTS_DIR / project.id
+        project_dir.mkdir(parents=True, exist_ok=True)
+        meta_path = project_dir / "meta.json"
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "id": project.id,
+                "name": project.name,
+                "page_count": project.page_count,
+                "status": project.status.value,
+                "created_at": project.created_at.isoformat(),
+            }, f, ensure_ascii=False, indent=2)
+    
+    def create(self, id: str, name: str, page_count: int) -> Project:
+        project = Project(id=id, name=name, page_count=page_count)
+        self._cache[id] = project
+        self._save(project)
+        return project
+    
+    def get(self, id: str) -> Optional[Project]:
+        return self._cache.get(id)
+    
+    def list_all(self) -> List[Project]:
+        return list(self._cache.values())
+    
+    def update(self, id: str, **kwargs) -> Optional[Project]:
+        project = self._cache.get(id)
+        if not project:
+            return None
+        for key, value in kwargs.items():
+            if hasattr(project, key) and value is not None:
+                setattr(project, key, value)
+        self._save(project)
+        return project
+    
+    def delete(self, id: str):
+        if id in self._cache:
+            del self._cache[id]
+
+
+class PagesRepository:
+    """Repositorio de páginas."""
+    
+    def __init__(self):
+        self._cache: Dict[str, Dict[int, Page]] = {}
+    
+    def _get_project_pages(self, project_id: str) -> Dict[int, Page]:
+        if project_id not in self._cache:
+            self._cache[project_id] = {}
+            # Cargar desde disco si existe
+            pages_file = PROJECTS_DIR / project_id / "pages.json"
+            if pages_file.exists():
+                with open(pages_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for p in data:
+                        self._cache[project_id][p["page_number"]] = Page(**p)
+        return self._cache[project_id]
+    
+    def _save(self, project_id: str):
+        pages = self._get_project_pages(project_id)
+        pages_file = PROJECTS_DIR / project_id / "pages.json"
+        with open(pages_file, "w", encoding="utf-8") as f:
+            json.dump([
+                {
+                    "project_id": p.project_id,
+                    "page_number": p.page_number,
+                    "has_original": p.has_original,
+                    "has_translated": p.has_translated,
+                }
+                for p in pages.values()
+            ], f, ensure_ascii=False, indent=2)
+    
+    def upsert(self, project_id: str, page_number: int, **kwargs) -> Page:
+        pages = self._get_project_pages(project_id)
+        if page_number in pages:
+            page = pages[page_number]
+            for key, value in kwargs.items():
+                if hasattr(page, key) and value is not None:
+                    setattr(page, key, value)
+        else:
+            page = Page(project_id=project_id, page_number=page_number, **kwargs)
+            pages[page_number] = page
+        self._save(project_id)
+        return page
+    
+    def list_by_project(self, project_id: str) -> List[Page]:
+        return list(self._get_project_pages(project_id).values())
+
+
+class TextRegionsRepository:
+    """Repositorio de regiones de texto."""
+    
+    def __init__(self):
+        self._cache: Dict[str, Dict[str, TextRegion]] = {}
+    
+    def _get_project_regions(self, project_id: str) -> Dict[str, TextRegion]:
+        if project_id not in self._cache:
+            self._cache[project_id] = {}
+            regions_file = PROJECTS_DIR / project_id / "text_regions.json"
+            if regions_file.exists():
+                with open(regions_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for r in data:
+                        self._cache[project_id][r["id"]] = TextRegion(**r)
+        return self._cache[project_id]
+    
+    def _save(self, project_id: str):
+        regions = self._get_project_regions(project_id)
+        regions_file = PROJECTS_DIR / project_id / "text_regions.json"
+        with open(regions_file, "w", encoding="utf-8") as f:
+            json.dump([
+                {
+                    "id": r.id,
+                    "project_id": r.project_id,
+                    "page_number": r.page_number,
+                    "bbox": r.bbox,
+                    "bbox_normalized": r.bbox_normalized,
+                    "src_text": r.src_text,
+                    "tgt_text": r.tgt_text,
+                    "confidence": r.confidence,
+                    "locked": r.locked,
+                    "needs_review": r.needs_review,
+                    "compose_mode": r.compose_mode,
+                    "font_size": r.font_size,
+                    "render_order": getattr(r, 'render_order', 0),
+                }
+                for r in regions.values()
+            ], f, ensure_ascii=False, indent=2)
+    
+    def get(self, region_id: str, project_id: str = None) -> Optional[TextRegion]:
+        # Si se proporciona project_id, asegurar que está cargado
+        if project_id:
+            project_regions = self._get_project_regions(project_id)
+            if region_id in project_regions:
+                return project_regions[region_id]
+        # Buscar en toda la caché
+        for project_regions in self._cache.values():
+            if region_id in project_regions:
+                return project_regions[region_id]
+        return None
+    
+    def list_by_page(self, project_id: str, page_number: int) -> List[TextRegion]:
+        regions = self._get_project_regions(project_id)
+        return [r for r in regions.values() if r.page_number == page_number]
+    
+    def replace_for_page(self, project_id: str, page_number: int, regions: List[TextRegion]):
+        project_regions = self._get_project_regions(project_id)
+        # Eliminar regiones existentes de esta página
+        to_delete = [rid for rid, r in project_regions.items() if r.page_number == page_number]
+        for rid in to_delete:
+            del project_regions[rid]
+        # Añadir nuevas
+        for r in regions:
+            project_regions[r.id] = r
+        self._save(project_id)
+    
+    def update(self, region_id: str, **kwargs) -> Optional[TextRegion]:
+        for project_id, project_regions in self._cache.items():
+            if region_id in project_regions:
+                region = project_regions[region_id]
+                for key, value in kwargs.items():
+                    if hasattr(region, key) and value is not None:
+                        setattr(region, key, value)
+                self._save(project_id)
+                return region
+        return None
+    
+    def delete(self, region_id: str, project_id: str = None) -> bool:
+        """Elimina una región de texto."""
+        if project_id:
+            project_regions = self._get_project_regions(project_id)
+            if region_id in project_regions:
+                del project_regions[region_id]
+                self._save(project_id)
+                return True
+        # Buscar en toda la caché
+        for pid, project_regions in self._cache.items():
+            if region_id in project_regions:
+                del project_regions[region_id]
+                self._save(pid)
+                return True
+        return False
+
+
+class GlossaryRepository:
+    """Repositorio de glosario."""
+    
+    def __init__(self):
+        self._cache: Dict[str, Dict[str, GlossaryEntry]] = {}
+    
+    def _get_project_glossary(self, project_id: str) -> Dict[str, GlossaryEntry]:
+        if project_id not in self._cache:
+            self._cache[project_id] = {}
+            glossary_file = PROJECTS_DIR / project_id / "glossary.json"
+            if glossary_file.exists():
+                with open(glossary_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for e in data:
+                        self._cache[project_id][e["id"]] = GlossaryEntry(**e)
+        return self._cache[project_id]
+    
+    def _save(self, project_id: str):
+        entries = self._get_project_glossary(project_id)
+        glossary_file = PROJECTS_DIR / project_id / "glossary.json"
+        with open(glossary_file, "w", encoding="utf-8") as f:
+            json.dump([
+                {
+                    "id": e.id,
+                    "project_id": e.project_id,
+                    "src_term": e.src_term,
+                    "tgt_term": e.tgt_term,
+                    "locked": e.locked,
+                }
+                for e in entries.values()
+            ], f, ensure_ascii=False, indent=2)
+    
+    def list_by_project(self, project_id: str) -> List[GlossaryEntry]:
+        return list(self._get_project_glossary(project_id).values())
+    
+    def replace_for_project(self, project_id: str, entries: List[Any]):
+        self._cache[project_id] = {}
+        for e in entries:
+            entry_id = e.id or str(uuid.uuid4())
+            self._cache[project_id][entry_id] = GlossaryEntry(
+                id=entry_id,
+                project_id=project_id,
+                src_term=e.src_term,
+                tgt_term=e.tgt_term,
+                locked=e.locked,
+            )
+        self._save(project_id)
+
+
+# Instancias singleton
+projects_repo = ProjectsRepository()
+pages_repo = PagesRepository()
+text_regions_repo = TextRegionsRepository()
+glossary_repo = GlossaryRepository()

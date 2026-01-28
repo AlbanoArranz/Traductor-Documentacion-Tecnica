@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual envs
+.venv/
+venv/
+backend/venv/
+
+# Node / frontend
+node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/dist-electron/
+desktop/out/
+desktop/build/
+
+# Vite / misc caches
+.vite/
+
+# Logs
+*.log
+backend/app.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Secrets
+.env
+.env.*
+
+# Local app data (should never be committed)
+# (Data is stored in %APPDATA%\NB7XTranslator, not inside repo)
+
+# Windsurf
+.windsurf/logs/

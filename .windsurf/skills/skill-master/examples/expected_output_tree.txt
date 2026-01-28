@@ -1,0 +1,6 @@
+.windsurf/skills/dxf-smoke-test-runner/
+  SKILL.md
+  resources/
+    checklist.md
+  examples/
+    sample_report.md

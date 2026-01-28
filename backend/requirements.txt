@@ -1,0 +1,23 @@
+# NB7X Translator - Backend Dependencies
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# PDF processing
+PyMuPDF>=1.23.0
+
+# OCR
+paddlepaddle>=2.5.0
+paddleocr>=2.7.0
+
+# Image processing
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# Translation (optional - fallback if not available)
+deepl>=1.16.0
+
+# Data validation
+pydantic>=2.5.0

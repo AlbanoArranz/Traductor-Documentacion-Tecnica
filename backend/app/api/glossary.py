@@ -1,0 +1,91 @@
+"""
+API endpoints para glosario de un proyecto.
+"""
+
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from app.db.repository import projects_repo, glossary_repo, text_regions_repo
+
+router = APIRouter()
+
+
+class GlossaryEntry(BaseModel):
+    id: Optional[str] = None
+    src_term: str
+    tgt_term: str
+    locked: bool = False
+
+
+class GlossaryResponse(BaseModel):
+    entries: List[GlossaryEntry]
+
+
+@router.get("", response_model=GlossaryResponse)
+async def get_glossary(project_id: str):
+    """Obtiene el glosario del proyecto."""
+    project = projects_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    entries = glossary_repo.list_by_project(project_id)
+    return GlossaryResponse(
+        entries=[
+            GlossaryEntry(
+                id=e.id,
+                src_term=e.src_term,
+                tgt_term=e.tgt_term,
+                locked=e.locked,
+            )
+            for e in entries
+        ]
+    )
+
+
+@router.put("")
+async def update_glossary(project_id: str, glossary: GlossaryResponse):
+    """Actualiza el glosario completo del proyecto."""
+    project = projects_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Protección contra borrado accidental: si ya existe glosario con entradas,
+    # no permitir sobrescribirlo con una lista vacía sin una acción explícita.
+    existing = glossary_repo.list_by_project(project_id)
+    if len(glossary.entries) == 0 and len(existing) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Refusing to overwrite non-empty glossary with empty entries",
+        )
+    
+    glossary_repo.replace_for_project(project_id, glossary.entries)
+    
+    return {"status": "ok"}
+
+
+@router.post("/apply")
+async def apply_glossary(project_id: str):
+    """
+    Aplica el glosario a todas las regiones de texto no bloqueadas.
+    Actualiza tgt_text de regiones con src_text que coincida con términos del glosario.
+    """
+    project = projects_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    entries = glossary_repo.list_by_project(project_id)
+    glossary_map = {e.src_term: e.tgt_term for e in entries if e.locked}
+    
+    updated_count = 0
+    for page_num in range(project.page_count):
+        regions = text_regions_repo.list_by_page(project_id, page_num)
+        for region in regions:
+            if not region.locked and region.src_text in glossary_map:
+                text_regions_repo.update(
+                    region.id,
+                    tgt_text=glossary_map[region.src_text],
+                )
+                updated_count += 1
+    
+    return {"status": "ok", "updated_count": updated_count}

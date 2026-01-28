@@ -1,0 +1,70 @@
+"""
+Modelos de datos del backend.
+"""
+
+from enum import Enum
+from datetime import datetime
+from typing import List, Optional
+from dataclasses import dataclass, field
+
+
+class ProjectStatus(Enum):
+    CREATED = "created"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    ERROR = "error"
+
+
+@dataclass
+class Project:
+    id: str
+    name: str
+    page_count: int
+    status: ProjectStatus = ProjectStatus.CREATED
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class Page:
+    project_id: str
+    page_number: int
+    has_original: bool = False
+    has_translated: bool = False
+
+
+@dataclass
+class TextRegion:
+    id: str
+    project_id: str
+    page_number: int
+    bbox: List[float]  # [x1, y1, x2, y2] en píxeles
+    bbox_normalized: List[float]  # [x1, y1, x2, y2] normalizado 0-1
+    src_text: str
+    tgt_text: Optional[str] = None
+    confidence: float = 0.0
+    locked: bool = False
+    needs_review: bool = False
+    compose_mode: str = "patch"  # "patch" o "inpaint"
+    font_size: Optional[int] = None  # Tamaño de fuente manual (None = auto)
+    render_order: int = 0  # Orden de renderizado (menor = se dibuja primero/debajo)
+
+
+@dataclass
+class GlossaryEntry:
+    id: str
+    project_id: str
+    src_term: str
+    tgt_term: str
+    locked: bool = False
+
+
+@dataclass
+class Job:
+    id: str
+    project_id: str
+    job_type: str
+    status: str = "pending"  # pending, running, completed, error
+    progress: float = 0.0
+    current_step: Optional[str] = None
+    error: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
