@@ -8,9 +8,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from ..config import PROJECTS_DIR, JOBS_DIR, DEFAULT_DPI
+from ..config import PROJECTS_DIR, JOBS_DIR, DEFAULT_DPI, get_config
 from ..db.models import Job
-from ..db.repository import projects_repo, pages_repo, text_regions_repo
+from ..db.repository import projects_repo, pages_repo, text_regions_repo, glossary_repo, global_glossary_repo
 from ..services import render_service, ocr_service, translate_service, compose_service
 
 
@@ -84,11 +84,27 @@ def run_render_all(job_id: str, project_id: str):
     try:
         job.status = "running"
         _save_job(job)
+
+        config = get_config()
+        try:
+            dpi = int(config.get("default_dpi", DEFAULT_DPI))
+        except Exception:
+            dpi = DEFAULT_DPI
         
         project_dir = PROJECTS_DIR / project_id
         pdf_path = project_dir / "src.pdf"
         total_pages = project.page_count
-        dpi = DEFAULT_DPI
+
+        global_entries = global_glossary_repo.list_all()
+        glossary_map = {e.src_term: e.tgt_term for e in global_entries if e.locked}
+
+        local_entries = glossary_repo.list_by_project(project_id)
+        for e in local_entries:
+            if not e.locked:
+                continue
+            if e.src_term in glossary_map:
+                continue
+            glossary_map[e.src_term] = e.tgt_term
         
         for page_num in range(total_pages):
             # Progreso: cada página tiene 4 pasos
@@ -116,10 +132,19 @@ def run_render_all(job_id: str, project_id: str):
             _save_job(job)
             
             if regions:
-                texts = [r.src_text for r in regions]
-                translations = translate_service.translate_batch(texts)
-                for region, translation in zip(regions, translations):
-                    region.tgt_text = translation
+                texts_to_translate = []
+                translate_indexes = []
+                for i, r in enumerate(regions):
+                    if r.src_text in glossary_map:
+                        r.tgt_text = glossary_map[r.src_text]
+                        continue
+                    texts_to_translate.append(r.src_text)
+                    translate_indexes.append(i)
+
+                if texts_to_translate:
+                    translations = translate_service.translate_batch(texts_to_translate)
+                    for idx, translation in zip(translate_indexes, translations):
+                        regions[idx].tgt_text = translation
             
             text_regions_repo.replace_for_page(project_id, page_num, regions)
             
@@ -127,6 +152,12 @@ def run_render_all(job_id: str, project_id: str):
             job.current_step = f"Componiendo página {page_num + 1}/{total_pages}"
             job.progress = base_progress + 1.0 / total_pages
             _save_job(job)
+
+            for r in regions:
+                if getattr(r, 'locked', False):
+                    continue
+                if r.src_text in glossary_map:
+                    r.tgt_text = glossary_map[r.src_text]
             
             compose_service.compose_page(
                 image_path,
