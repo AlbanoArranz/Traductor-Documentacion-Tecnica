@@ -2,8 +2,8 @@ import json
 import uuid
 from typing import Any, Dict, List
 
-from app.config import GLOSSARY_GLOBAL_FILE
-from app.db.models import GlossaryEntry
+from ..config import GLOSSARY_GLOBAL_FILE
+from .models import GlossaryEntry
 
 
 class GlobalGlossaryRepository:

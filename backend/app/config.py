@@ -91,5 +91,6 @@ def get_min_han_ratio() -> float:
 def save_config(config: dict):
     """Guarda la configuración persistente."""
     import json
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)

@@ -5,9 +5,9 @@ API endpoints para exportar PDF final.
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from app.config import PROJECTS_DIR, DEFAULT_DPI
-from app.db.repository import projects_repo
-from app.services import export_service
+from ..config import PROJECTS_DIR, DEFAULT_DPI
+from ..db.repository import projects_repo
+from ..services import export_service
 
 router = APIRouter()
 

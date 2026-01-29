@@ -8,10 +8,10 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from app.config import PROJECTS_DIR, JOBS_DIR, DEFAULT_DPI
-from app.db.models import Job
-from app.db.repository import projects_repo, pages_repo, text_regions_repo
-from app.services import render_service, ocr_service, translate_service, compose_service
+from ..config import PROJECTS_DIR, JOBS_DIR, DEFAULT_DPI
+from ..db.models import Job
+from ..db.repository import projects_repo, pages_repo, text_regions_repo
+from ..services import render_service, ocr_service, translate_service, compose_service
 
 
 def _save_job(job: Job):

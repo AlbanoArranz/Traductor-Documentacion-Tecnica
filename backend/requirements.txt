@@ -9,8 +9,7 @@ python-multipart>=0.0.6
 PyMuPDF>=1.23.0
 
 # OCR
-paddlepaddle>=2.5.0
-paddleocr>=2.7.0
+easyocr>=1.7.1
 
 # Image processing
 Pillow>=10.0.0

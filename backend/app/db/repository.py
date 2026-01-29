@@ -8,9 +8,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-from app.config import PROJECTS_DIR, JOBS_DIR
-from app.db.models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job
-from app.db.global_glossary_repository import GlobalGlossaryRepository
+from ..config import PROJECTS_DIR, JOBS_DIR
+from .models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job
+from .global_glossary_repository import GlobalGlossaryRepository
 
 
 class ProjectsRepository:

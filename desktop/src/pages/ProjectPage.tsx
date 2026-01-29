@@ -2,7 +2,17 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Play, Download, Book, RefreshCw, Lock, Unlock, Trash2 } from 'lucide-react'
-import { projectsApi, pagesApi, jobsApi, exportApi, glossaryApi, globalGlossaryApi, TextRegion } from '../lib/api'
+import {
+  projectsApi,
+  pagesApi,
+  jobsApi,
+  exportApi,
+  glossaryApi,
+  globalGlossaryApi,
+  settingsApi,
+  OcrRegionFilter,
+  TextRegion,
+} from '../lib/api'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -27,6 +37,9 @@ export default function ProjectPage() {
   const [confirmDeleteFiltered, setConfirmDeleteFiltered] = useState(false)
   const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{ current: number; total: number } | null>(null)
   const [addGlossaryScope, setAddGlossaryScope] = useState<'global' | 'local'>('global')
+  const [composeAllRunning, setComposeAllRunning] = useState(false)
+  const [confirmComposeAll, setConfirmComposeAll] = useState(false)
+  const [composeAllProgress, setComposeAllProgress] = useState<{ current: number; total: number } | null>(null)
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -134,8 +147,59 @@ export default function ProjectPage() {
     }
   }
 
+  const composeAllPages = async () => {
+    if (!projectId) return
+    const total = project?.page_count || 0
+    if (!total) return
+
+    setComposeAllRunning(true)
+    setComposeAllProgress({ current: 0, total })
+    try {
+      for (let i = 0; i < total; i++) {
+        await pagesApi.renderTranslated(projectId, i)
+        setComposeAllProgress({ current: i + 1, total })
+      }
+      queryClient.invalidateQueries({ queryKey: ['pages', projectId] })
+      setImageTimestamp(Date.now())
+    } catch (e) {
+      console.error('Error composing all pages:', e)
+      alert('Error al componer todas las páginas')
+    } finally {
+      setComposeAllRunning(false)
+      setConfirmComposeAll(false)
+      setComposeAllProgress(null)
+    }
+  }
+
   const filteredRegions = (regions || []).filter(matchesRegionFilter)
   const displayedRegions = showOnlyFiltered && regionFilterText.trim() ? filteredRegions : (regions || [])
+
+  const persistOcrFilterFromRegionFilter = async () => {
+    if (!projectId) return
+    if (deleteScope !== 'all') return
+    if (regionFilterField !== 'src') return
+    const pattern = regionFilterText.trim()
+    if (!pattern) return
+
+    const nextFilter: OcrRegionFilter = {
+      mode: regionFilterMode,
+      pattern,
+      case_sensitive: regionFilterCaseSensitive,
+    }
+
+    const current = await settingsApi.get()
+    const currentFilters = (current.data.ocr_region_filters || []) as OcrRegionFilter[]
+
+    const alreadyExists = currentFilters.some(
+      (f) =>
+        f.mode === nextFilter.mode &&
+        f.pattern === nextFilter.pattern &&
+        !!f.case_sensitive === !!nextFilter.case_sensitive
+    )
+    if (alreadyExists) return
+
+    await settingsApi.update({ ocr_region_filters: [...currentFilters, nextFilter] })
+  }
 
   const bulkDeleteFiltered = async () => {
     if (!projectId) return
@@ -144,6 +208,13 @@ export default function ProjectPage() {
     setBulkDeleting(true)
     setBulkDeleteProgress(null)
     try {
+      try {
+        await persistOcrFilterFromRegionFilter()
+      } catch (e) {
+        console.warn('Could not persist OCR filter from region filter:', e)
+        alert('No se pudo guardar el filtro OCR persistente. Se continuará con la eliminación.')
+      }
+
       if (deleteScope === 'page') {
         const idsToDelete = filteredRegions.map((r) => r.id)
         setBulkDeleteProgress({ current: 0, total: idsToDelete.length })
@@ -346,6 +417,31 @@ export default function ProjectPage() {
               className="px-3 py-1 text-sm border rounded hover:bg-white disabled:opacity-50"
             >
               {composeMutation.isPending ? 'Componiendo...' : 'Componer'}
+            </button>
+            <button
+              onClick={async () => {
+                if (composeAllRunning) return
+                if (!project?.page_count) return
+
+                if (!confirmComposeAll) {
+                  setConfirmComposeAll(true)
+                  window.setTimeout(() => setConfirmComposeAll(false), 5000)
+                  return
+                }
+
+                await composeAllPages()
+              }}
+              disabled={composeAllRunning || !project?.page_count}
+              className={`px-3 py-1 text-sm border rounded hover:bg-white disabled:opacity-50 ${
+                confirmComposeAll ? 'border-primary-600 bg-primary-50' : ''
+              }`}
+              title={confirmComposeAll ? 'Confirmar (5s)' : 'Componer la imagen traducida de todas las páginas'}
+            >
+              {composeAllRunning
+                ? `Componiendo ${composeAllProgress?.current || 0}/${composeAllProgress?.total || 0}...`
+                : confirmComposeAll
+                  ? 'Confirmar componer todas'
+                  : 'Componer todas'}
             </button>
             {canShowOriginal && canShowTranslated && (
               <button

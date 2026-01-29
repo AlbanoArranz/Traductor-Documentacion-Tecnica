@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { settingsApi, OcrRegionFilter } from '../lib/api'
 
 export default function SettingsPage() {
+  const queryClient = useQueryClient()
   const [deeplApiKey, setDeeplApiKey] = useState('')
   const [defaultDpi, setDefaultDpi] = useState('450')
   const [minHanRatio, setMinHanRatio] = useState('100')
@@ -24,6 +25,8 @@ export default function SettingsPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const parsedMinHanRatio = Number(minHanRatio)
+      const minHanRatioPct = Number.isFinite(parsedMinHanRatio) ? parsedMinHanRatio : 100
       const payload: {
         deepl_api_key?: string
         default_dpi: number
@@ -31,7 +34,7 @@ export default function SettingsPage() {
         ocr_region_filters: OcrRegionFilter[]
       } = {
         default_dpi: parseInt(defaultDpi) || 450,
-        min_han_ratio: Math.max(0, Math.min(1, (parseInt(minHanRatio) || 100) / 100)),
+        min_han_ratio: Math.max(0, Math.min(1, minHanRatioPct / 100)),
         ocr_region_filters: ocrFilters,
       }
       if (deeplApiKey.trim()) {
@@ -40,6 +43,7 @@ export default function SettingsPage() {
       return settingsApi.update(payload)
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
       alert('Configuración guardada')
     },
     onError: () => {

@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.db.repository import projects_repo, glossary_repo, text_regions_repo, global_glossary_repo
+from ..db.repository import projects_repo, glossary_repo, text_regions_repo, global_glossary_repo
 
 router = APIRouter()
 

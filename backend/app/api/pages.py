@@ -7,9 +7,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.config import PROJECTS_DIR, DEFAULT_DPI
-from app.db.repository import projects_repo, pages_repo, text_regions_repo
-from app.services import render_service, ocr_service, compose_service, translate_service
+from ..config import PROJECTS_DIR, DEFAULT_DPI
+from ..db.repository import projects_repo, pages_repo, text_regions_repo, glossary_repo, global_glossary_repo
+from ..services import render_service, ocr_service, compose_service, translate_service
 
 router = APIRouter()
 
@@ -106,14 +106,37 @@ async def run_ocr(
         raise HTTPException(status_code=400, detail="Original image not rendered yet")
     
     # Ejecutar OCR
-    regions = ocr_service.detect_text(image_path, dpi)
+    try:
+        regions = ocr_service.detect_text(image_path, dpi)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
     # Traducir automáticamente las regiones detectadas
     if regions:
-        texts_to_translate = [r.src_text for r in regions]
-        translations = translate_service.translate_batch(texts_to_translate)
-        for region, translation in zip(regions, translations):
-            region.tgt_text = translation
+        global_entries = global_glossary_repo.list_all()
+        glossary_map = {e.src_term: e.tgt_term for e in global_entries if e.locked}
+
+        local_entries = glossary_repo.list_by_project(project_id)
+        for e in local_entries:
+            if not e.locked:
+                continue
+            if e.src_term in glossary_map:
+                continue
+            glossary_map[e.src_term] = e.tgt_term
+
+        texts_to_translate = []
+        translate_indexes = []
+        for i, r in enumerate(regions):
+            if r.src_text in glossary_map:
+                r.tgt_text = glossary_map[r.src_text]
+                continue
+            texts_to_translate.append(r.src_text)
+            translate_indexes.append(i)
+
+        if texts_to_translate:
+            translations = translate_service.translate_batch(texts_to_translate)
+            for idx, translation in zip(translate_indexes, translations):
+                regions[idx].tgt_text = translation
     
     # Guardar regiones con traducciones
     text_regions_repo.replace_for_page(project_id, page_number, regions)
@@ -207,6 +230,23 @@ async def render_translated(
         raise HTTPException(status_code=400, detail="Original image not rendered yet")
     
     regions = text_regions_repo.list_by_page(project_id, page_number)
+
+    global_entries = global_glossary_repo.list_all()
+    glossary_map = {e.src_term: e.tgt_term for e in global_entries if e.locked}
+
+    local_entries = glossary_repo.list_by_project(project_id)
+    for e in local_entries:
+        if not e.locked:
+            continue
+        if e.src_term in glossary_map:
+            continue
+        glossary_map[e.src_term] = e.tgt_term
+
+    for r in regions:
+        if getattr(r, 'locked', False):
+            continue
+        if r.src_text in glossary_map:
+            r.tgt_text = glossary_map[r.src_text]
     
     output_path = compose_service.compose_page(
         original_path,

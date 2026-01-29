@@ -7,7 +7,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import projects, pages, glossary, export, jobs, settings, global_glossary
+from .api import projects, pages, glossary, export, jobs, settings, global_glossary
 
 app = FastAPI(
     title="NB7X Translator API",

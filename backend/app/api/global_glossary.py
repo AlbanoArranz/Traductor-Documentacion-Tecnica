@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.db.repository import global_glossary_repo
+from ..db.repository import global_glossary_repo
 
 router = APIRouter()
 

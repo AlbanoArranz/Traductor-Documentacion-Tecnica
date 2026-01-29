@@ -9,8 +9,8 @@ from typing import List
 
 from PIL import Image
 
-from app.config import CJK_RATIO_THRESHOLD, get_min_han_ratio, get_ocr_region_filters
-from app.db.models import TextRegion
+from ..config import CJK_RATIO_THRESHOLD, get_min_han_ratio, get_ocr_region_filters
+from ..db.models import TextRegion
 
 
 # Lazy load de EasyOCR para evitar importación lenta al inicio
@@ -21,7 +21,12 @@ def _get_ocr():
     """Obtiene la instancia de EasyOCR Reader (lazy load)."""
     global _ocr_reader
     if _ocr_reader is None:
-        import easyocr
+        try:
+            import easyocr
+        except ModuleNotFoundError as e:
+            raise RuntimeError(
+                "Missing dependency: easyocr. Install backend requirements in your venv (pip install -r backend/requirements.txt)."
+            ) from e
         _ocr_reader = easyocr.Reader(['ch_sim', 'en'], gpu=False)
     return _ocr_reader
 

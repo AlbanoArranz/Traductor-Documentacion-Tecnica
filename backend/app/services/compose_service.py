@@ -9,7 +9,7 @@ from typing import List
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from app.db.models import TextRegion
+from ..db.models import TextRegion
 
 
 def _estimate_background_color(img: Image.Image, bbox: List[float], margin: int = 5) -> tuple:

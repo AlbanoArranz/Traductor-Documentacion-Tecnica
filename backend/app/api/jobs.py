@@ -6,8 +6,8 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 
-from app.db.repository import projects_repo
-from app.services import job_service
+from ..db.repository import projects_repo
+from ..services import job_service
 
 router = APIRouter()
 

@@ -10,9 +10,9 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
-from app.config import PROJECTS_DIR
-from app.db.models import Project, ProjectStatus
-from app.db.repository import projects_repo
+from ..config import PROJECTS_DIR
+from ..db.models import Project, ProjectStatus
+from ..db.repository import projects_repo
 
 router = APIRouter()
 
@@ -49,7 +49,7 @@ async def create_project(
         f.write(content)
     
     # Contar páginas
-    from app.services.render_service import count_pages
+    from ..services.render_service import count_pages
     page_count = count_pages(pdf_path)
     
     # Crear proyecto en DB

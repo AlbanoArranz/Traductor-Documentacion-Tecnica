@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List, Optional
 
-from app.config import get_config, save_config, DEFAULT_MIN_HAN_RATIO, get_ocr_region_filters
+from ..config import get_config, save_config, DEFAULT_MIN_HAN_RATIO, get_ocr_region_filters
 
 router = APIRouter()
 

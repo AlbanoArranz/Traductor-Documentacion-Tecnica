@@ -4,7 +4,7 @@ Servicio de traducción usando DeepL API.
 
 from typing import List, Optional
 
-from app.config import get_config
+from ..config import get_config
 
 
 def _get_api_key() -> str:
