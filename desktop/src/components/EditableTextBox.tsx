@@ -210,35 +210,41 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
           autoFocus
           style={{
             position: 'absolute',
-            inset: 2,
-            width: swidth - 4,
-            height: sheight - 4,
+            inset: 0,
+            width: swidth,
+            height: sheight,
             border: 'none',
             background: 'white',
-            fontSize: Math.min(sheight * 0.6, Math.max(10, swidth / 10)),
+            fontSize: Math.min(sheight * 0.5, Math.max(8, swidth / 8)),
             fontFamily: region.font_family || 'Arial',
             color: textColor,
             textAlign: (region.text_align as any) || 'center',
+            lineHeight: region.line_height || 1.0,
             resize: 'none',
             outline: 'none',
-            padding: 2,
+            padding: 0,
+            boxSizing: 'border-box',
+            margin: 0,
           }}
         />
       ) : (
         <div
           style={{
             position: 'absolute',
-            inset: 2,
+            inset: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: region.text_align === 'left' ? 'flex-start' : region.text_align === 'right' ? 'flex-end' : 'center',
-            fontSize: Math.min(sheight * 0.6, Math.max(10, swidth / 10)),
+            fontSize: Math.min(sheight * 0.5, Math.max(8, swidth / 8)),
             fontFamily: region.font_family || 'Arial',
             color: textColor,
             textAlign: (region.text_align as any) || 'center',
+            lineHeight: region.line_height || 1.0,
             overflow: 'hidden',
             pointerEvents: 'none',
             userSelect: 'none',
+            padding: 0,
+            boxSizing: 'border-box',
           }}
         >
           <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>

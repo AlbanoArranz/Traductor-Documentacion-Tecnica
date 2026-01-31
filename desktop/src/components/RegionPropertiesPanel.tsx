@@ -205,6 +205,22 @@ export const RegionPropertiesPanel: React.FC<RegionPropertiesPanelProps> = ({
           />
         </div>
         <div>
+          <div className="flex justify-between mb-1">
+            <label className="text-sm text-gray-700">Interlineado</label>
+            <span className="text-sm text-gray-500">{region.line_height?.toFixed(1) || '1.0'}</span>
+          </div>
+          <input
+            type="range"
+            min="0.5"
+            max="2.0"
+            step="0.1"
+            value={region.line_height || 1.0}
+            onChange={(e) => onUpdate({ line_height: parseFloat(e.target.value) })}
+            className="w-full"
+          />
+          <p className="text-xs text-gray-400 mt-1">Menor = más compacto</p>
+        </div>
+        <div>
           <label className="block text-sm text-gray-700 mb-2">Alineación</label>
           <div className="flex gap-1">
             {['left', 'center', 'right'].map((align) => (

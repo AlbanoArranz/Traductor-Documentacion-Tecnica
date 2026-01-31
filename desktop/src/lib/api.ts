@@ -53,6 +53,7 @@ export interface TextRegion {
   text_align: string
   rotation: number
   is_manual: boolean
+  line_height: number
 }
 
 export interface GlossaryEntry {

@@ -56,6 +56,7 @@ class TextRegion:
     text_align: str = "center"  # "left", "center", "right"
     rotation: float = 0.0  # Grados de rotación (0-360)
     is_manual: bool = False  # True si fue creada manualmente (no por OCR)
+    line_height: float = 1.0  # Interlineado (1.0 = normal, 0.8 = compacto, 1.2 = espaciado)
 
 
 @dataclass

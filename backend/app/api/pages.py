@@ -41,6 +41,7 @@ class TextRegionResponse(BaseModel):
     text_align: str = "center"
     rotation: float = 0.0
     is_manual: bool = False
+    line_height: float = 1.0
 
 
 class TextRegionUpdate(BaseModel):
@@ -56,6 +57,7 @@ class TextRegionUpdate(BaseModel):
     text_align: Optional[str] = None
     rotation: Optional[float] = None
     bbox: Optional[List[float]] = None  # [x1, y1, x2, y2] para mover/resize
+    line_height: Optional[float] = None
 
 
 @router.get("", response_model=List[PageResponse])
@@ -195,6 +197,7 @@ async def get_text_regions(project_id: str, page_number: int):
             text_align=getattr(r, 'text_align', 'center'),
             rotation=getattr(r, 'rotation', 0.0),
             is_manual=getattr(r, 'is_manual', False),
+            line_height=getattr(r, 'line_height', 1.0),
         )
         for r in regions
     ]
@@ -232,6 +235,7 @@ async def update_text_region(
         "text_align": update.text_align,
         "rotation": update.rotation,
         "bbox": update.bbox,
+        "line_height": update.line_height,
     }
     # Filtrar campos None
     update_fields = {k: v for k, v in update_fields.items() if v is not None}
@@ -310,6 +314,7 @@ async def create_text_region(
         text_align=region.text_align,
         rotation=region.rotation,
         is_manual=region.is_manual,
+        line_height=getattr(region, 'line_height', 1.0),
     )
 
 
