@@ -1,11 +1,12 @@
-"""
+""" 
 API endpoints para jobs asíncronos.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
 from typing import Optional
 
+from ..config import DEFAULT_DPI
 from ..db.repository import projects_repo
 from ..services import job_service
 
@@ -24,6 +25,7 @@ class JobResponse(BaseModel):
 async def start_render_all(
     project_id: str,
     background_tasks: BackgroundTasks,
+    dpi: int = Query(default=DEFAULT_DPI),
 ):
     """Inicia un job para renderizar todas las páginas (original + OCR + traducción)."""
     project = projects_repo.get(project_id)
@@ -31,7 +33,7 @@ async def start_render_all(
         raise HTTPException(status_code=404, detail="Project not found")
     
     job = job_service.create_job(project_id, "render_all")
-    background_tasks.add_task(job_service.run_render_all, job.id, project_id)
+    background_tasks.add_task(job_service.run_render_all, job.id, project_id, dpi)
     
     return JobResponse(
         id=job.id,

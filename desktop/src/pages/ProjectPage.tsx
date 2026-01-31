@@ -1,18 +1,28 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Play, Download, Book, RefreshCw, Lock, Unlock, Trash2 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ArrowLeft,
+  Book,
+  Play,
+  Download,
+  Lock,
+  Unlock,
+  Trash2,
+  RefreshCw,
+} from 'lucide-react'
 import {
   projectsApi,
   pagesApi,
-  jobsApi,
-  exportApi,
   glossaryApi,
   globalGlossaryApi,
+  jobsApi,
+  exportApi,
   settingsApi,
-  OcrRegionFilter,
-  TextRegion,
 } from '../lib/api'
+import type { TextRegion, OcrRegionFilter } from '../lib/api'
+import { EditableTextBox } from '../components/EditableTextBox'
+import { RegionPropertiesPanel } from '../components/RegionPropertiesPanel'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -40,6 +50,10 @@ export default function ProjectPage() {
   const [composeAllRunning, setComposeAllRunning] = useState(false)
   const [confirmComposeAll, setConfirmComposeAll] = useState(false)
   const [composeAllProgress, setComposeAllProgress] = useState<{ current: number; total: number } | null>(null)
+  
+  // Estado para filtros OCR del proyecto
+  const [projectOcrFilters, setProjectOcrFilters] = useState<OcrRegionFilter[]>([])
+  const [showOcrFiltersPanel, setShowOcrFiltersPanel] = useState(false)
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -57,6 +71,27 @@ export default function ProjectPage() {
     queryKey: ['regions', projectId, selectedPage],
     queryFn: () => pagesApi.getTextRegions(projectId!, selectedPage).then(res => res.data),
     enabled: !!projectId,
+  })
+
+  // Query para filtros OCR del proyecto
+  const { data: projectOcrFiltersData, refetch: refetchProjectOcrFilters } = useQuery({
+    queryKey: ['project-ocr-filters', projectId],
+    queryFn: () => projectsApi.getOcrFilters(projectId!).then(res => res.data),
+    enabled: !!projectId,
+  })
+
+  // Mutation para actualizar filtros OCR del proyecto
+  const updateProjectOcrFiltersMutation = useMutation({
+    mutationFn: (filters: OcrRegionFilter[]) =>
+      projectsApi.updateOcrFilters(projectId!, filters),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project-ocr-filters', projectId] })
+      alert('Filtros OCR guardados')
+    },
+    onError: (err) => {
+      console.error('Error updating project OCR filters:', err)
+      alert('Error al guardar filtros OCR')
+    },
   })
 
   const renderMutation = useMutation({
@@ -111,7 +146,7 @@ export default function ProjectPage() {
   })
 
   const processAllMutation = useMutation({
-    mutationFn: () => jobsApi.startRenderAll(projectId!),
+    mutationFn: () => jobsApi.startRenderAll(projectId!, 450),
     onSuccess: (res) => {
       setJobId(res.data.id)
     },
@@ -276,12 +311,13 @@ export default function ProjectPage() {
         if (res.data.status === 'completed' || res.data.status === 'error') {
           setJobId(null)
           queryClient.invalidateQueries({ queryKey: ['pages', projectId] })
+          setImageTimestamp(Date.now())
           if (res.data.status === 'error') {
             alert(`Error: ${res.data.error}`)
           }
         }
       } catch (e) {
-        console.error('Error polling job:', e)
+        console.error('Error polling job status:', e)
       }
     }, 1000)
 
@@ -289,12 +325,19 @@ export default function ProjectPage() {
   }, [jobId, projectId, queryClient])
 
   // Update image size when loaded
+  const [imageScale, setImageScale] = useState(1)
   const handleImageLoad = () => {
     if (imageRef.current) {
+      const naturalWidth = imageRef.current.naturalWidth
+      const naturalHeight = imageRef.current.naturalHeight
+      const displayWidth = imageRef.current.clientWidth
+      const displayHeight = imageRef.current.clientHeight
+      
       setImageSize({
-        width: imageRef.current.naturalWidth,
-        height: imageRef.current.naturalHeight,
+        width: displayWidth,
+        height: displayHeight,
       })
+      setImageScale(displayWidth / naturalWidth)
     }
   }
 
@@ -412,6 +455,27 @@ export default function ProjectPage() {
               {ocrMutation.isPending ? 'Detectando...' : 'OCR'}
             </button>
             <button
+              onClick={() => {
+                // Crear caja manual en el centro de la imagen
+                if (imageSize.width > 0 && imageSize.height > 0) {
+                  const centerX = imageSize.width / 2 - 50
+                  const centerY = imageSize.height / 2 - 15
+                  pagesApi.createTextRegion(projectId!, selectedPage, {
+                    bbox: [centerX, centerY, centerX + 100, centerY + 30],
+                    src_text: '',
+                    tgt_text: 'Nuevo texto',
+                  }).then(() => {
+                    refetchRegions()
+                  })
+                }
+              }}
+              disabled={!currentPage?.has_original}
+              className="px-3 py-1 text-sm border rounded hover:bg-white disabled:opacity-50"
+              title="Añadir caja de texto manual"
+            >
+              + Añadir caja
+            </button>
+            <button
               onClick={() => composeMutation.mutate()}
               disabled={composeMutation.isPending || !regions?.length}
               className="px-3 py-1 text-sm border rounded hover:bg-white disabled:opacity-50"
@@ -462,36 +526,34 @@ export default function ProjectPage() {
                 className="max-w-full shadow-lg"
                 onLoad={handleImageLoad}
               />
-              {/* Overlay para regiones de texto - clickeable */}
+              {/* Overlay interactivo para regiones de texto */}
               {regions && regions.length > 0 && imageSize.width > 0 && (
-                <svg
+                <div
                   className="absolute top-0 left-0"
-                  style={{ width: '100%', height: '100%' }}
-                  viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
-                  preserveAspectRatio="none"
+                  style={{
+                    width: imageSize.width,
+                    height: imageSize.height,
+                  }}
                 >
-                  {regions.map((region) => {
-                    const isSelected = selectedRegion?.id === region.id
-                    const isHovered = hoveredRegion === region.id
-                    const [x1, y1, x2, y2] = region.bbox
-                    return (
-                      <rect
-                        key={region.id}
-                        x={x1}
-                        y={y1}
-                        width={x2 - x1}
-                        height={y2 - y1}
-                        fill={isSelected ? 'rgba(59, 130, 246, 0.3)' : isHovered ? 'rgba(59, 130, 246, 0.15)' : 'rgba(0,0,0,0.01)'}
-                        stroke={isSelected ? '#2563eb' : isHovered ? '#3b82f6' : '#9ca3af'}
-                        strokeWidth={isSelected ? 3 : 1}
-                        className="cursor-pointer"
-                        onClick={() => setSelectedRegion(region)}
-                        onMouseEnter={() => setHoveredRegion(region.id)}
-                        onMouseLeave={() => setHoveredRegion(null)}
-                      />
-                    )
-                  })}
-                </svg>
+                  {regions.map((region, index) => (
+                    <EditableTextBox
+                      key={region.id}
+                      region={region}
+                      imageSize={imageSize}
+                      scale={imageScale}
+                      isSelected={selectedRegion?.id === region.id}
+                      index={index}
+                      onSelect={() => setSelectedRegion(region)}
+                      onUpdate={(updates) =>
+                        updateRegionMutation.mutate({
+                          regionId: region.id,
+                          updates,
+                        })
+                      }
+                      onDelete={() => deleteRegionMutation.mutate(region.id)}
+                    />
+                  ))}
+                </div>
               )}
             </div>
           ) : (
@@ -503,6 +565,96 @@ export default function ProjectPage() {
 
         {/* Text regions panel */}
         <aside className="w-80 border-l bg-white overflow-y-auto">
+          {/* Filtros OCR del proyecto */}
+          <div className="p-4 border-b bg-gray-50">
+            <div className="flex items-center justify-between">
+              <h2 className="font-medium text-sm">Filtros OCR de este proyecto</h2>
+              <button
+                onClick={() => setShowOcrFiltersPanel(!showOcrFiltersPanel)}
+                className="text-xs text-primary-600 hover:underline"
+              >
+                {showOcrFiltersPanel ? 'Ocultar' : 'Editar'}
+              </button>
+            </div>
+            {!showOcrFiltersPanel && (
+              <p className="text-xs text-gray-500 mt-1">
+                {projectOcrFiltersData?.ocr_region_filters?.length || 0} filtros definidos
+              </p>
+            )}
+            {showOcrFiltersPanel && (
+              <div className="mt-3 space-y-2">
+                {(projectOcrFiltersData?.ocr_region_filters || []).map((f, idx) => (
+                  <div key={idx} className="grid grid-cols-[90px_1fr_70px_30px] gap-1 items-center text-xs">
+                    <select
+                      value={f.mode}
+                      onChange={(e) => {
+                        const next = [...(projectOcrFiltersData?.ocr_region_filters || [])]
+                        next[idx] = { ...next[idx], mode: e.target.value as OcrRegionFilter['mode'] }
+                        setProjectOcrFilters(next)
+                      }}
+                      className="px-1 py-1 border rounded"
+                    >
+                      <option value="contains">Contiene</option>
+                      <option value="starts">Empieza</option>
+                      <option value="ends">Termina</option>
+                      <option value="regex">Regex</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={f.pattern}
+                      onChange={(e) => {
+                        const next = [...(projectOcrFiltersData?.ocr_region_filters || [])]
+                        next[idx] = { ...next[idx], pattern: e.target.value }
+                        setProjectOcrFilters(next)
+                      }}
+                      className="px-1 py-1 border rounded"
+                      placeholder="Patrón"
+                    />
+                    <label className="flex items-center gap-1 text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={!!f.case_sensitive}
+                        onChange={(e) => {
+                          const next = [...(projectOcrFiltersData?.ocr_region_filters || [])]
+                          next[idx] = { ...next[idx], case_sensitive: e.target.checked }
+                          setProjectOcrFilters(next)
+                        }}
+                      />
+                      Mayús.
+                    </label>
+                    <button
+                      onClick={() => {
+                        const next = (projectOcrFiltersData?.ocr_region_filters || []).filter((_, i) => i !== idx)
+                        setProjectOcrFilters(next)
+                      }}
+                      className="text-red-600 hover:bg-red-50 rounded"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      const next = [...(projectOcrFiltersData?.ocr_region_filters || []), { mode: 'contains' as const, pattern: '', case_sensitive: false }]
+                      setProjectOcrFilters(next)
+                    }}
+                    className="flex-1 px-2 py-1 text-xs border rounded hover:bg-gray-100"
+                  >
+                    + Añadir filtro
+                  </button>
+                  <button
+                    onClick={() => updateProjectOcrFiltersMutation.mutate(projectOcrFiltersData?.ocr_region_filters || [])}
+                    disabled={updateProjectOcrFiltersMutation.isPending}
+                    className="px-3 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {updateProjectOcrFiltersMutation.isPending ? 'Guardando...' : 'Guardar'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="p-4 border-b">
             <h2 className="font-medium">Regiones de texto ({regions?.length || 0})</h2>
             <div className="mt-3 space-y-2">
@@ -665,181 +817,36 @@ export default function ProjectPage() {
         </aside>
       </div>
 
-      {/* Region edit modal */}
+      {/* Region edit panel - reemplaza el modal */}
       {selectedRegion && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="font-medium">Editar región</h3>
-              <button
-                onClick={() => {
-                  deleteRegionMutation.mutate(selectedRegion.id)
-                }}
-                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
-                title="Eliminar región"
-              >
-                <Trash2 size={20} />
-              </button>
-            </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Texto original (ZH)
-                </label>
-                <p className="text-gray-600 bg-gray-50 p-2 rounded">{selectedRegion.src_text}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Traducción (ES)
-                </label>
-                <input
-                  type="text"
-                  value={selectedRegion.tgt_text || ''}
-                  onChange={(e) =>
-                    setSelectedRegion({ ...selectedRegion, tgt_text: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tamaño de fuente (px)
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="8"
-                    max="72"
-                    placeholder="Auto"
-                    value={selectedRegion.font_size || ''}
-                    onChange={(e) =>
-                      setSelectedRegion({
-                        ...selectedRegion,
-                        font_size: e.target.value ? parseInt(e.target.value) : null,
-                      })
-                    }
-                    className="w-24 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-500">Dejar vacío para auto-ajustar</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Orden de renderizado
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={selectedRegion.render_order || 0}
-                    onChange={(e) =>
-                      setSelectedRegion({
-                        ...selectedRegion,
-                        render_order: parseInt(e.target.value) || 0,
-                      })
-                    }
-                    className="w-24 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-500">Menor = debajo, Mayor = encima</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Añadir al glosario en
-                </label>
-                <select
-                  value={addGlossaryScope}
-                  onChange={(e) => setAddGlossaryScope(e.target.value as 'global' | 'local')}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="global">General (todos los documentos)</option>
-                  <option value="local">Este documento</option>
-                </select>
-              </div>
-            </div>
-            <div className="p-4 border-t flex justify-between">
-              <button
-                onClick={async () => {
-                  if (selectedRegion.src_text && selectedRegion.tgt_text) {
-                    try {
-                      const global = await globalGlossaryApi.get()
-                      const globalEntries = global.data.entries || []
-                      const existsInGlobal = globalEntries.some(e => e.src_term === selectedRegion.src_text)
-
-                      if (addGlossaryScope === 'local' && existsInGlobal) {
-                        alert('Este término ya existe en el glosario general')
-                        return
-                      }
-
-                      if (addGlossaryScope === 'global') {
-                        const exists = globalEntries.some(e => e.src_term === selectedRegion.src_text)
-                        if (exists) {
-                          alert('Este término ya existe en el glosario general')
-                          return
-                        }
-                        globalEntries.push({
-                          src_term: selectedRegion.src_text,
-                          tgt_term: selectedRegion.tgt_text,
-                          locked: true,
-                        })
-                        await globalGlossaryApi.update(globalEntries)
-                        alert('✓ Añadido al glosario general')
-                        return
-                      }
-
-                      const glossary = await glossaryApi.get(projectId!)
-                      const entries = glossary.data.entries || []
-                      const exists = entries.some(e => e.src_term === selectedRegion.src_text)
-                      if (exists) {
-                        alert('Este término ya existe en el glosario del documento')
-                        return
-                      }
-                      entries.push({
-                        src_term: selectedRegion.src_text,
-                        tgt_term: selectedRegion.tgt_text,
-                        locked: true,
-                      })
-                      await glossaryApi.update(projectId!, entries)
-                      alert('✓ Añadido al glosario del documento')
-                    } catch (err) {
-                      console.error('Error al añadir al glosario:', err)
-                      alert('Error al añadir al glosario')
-                    }
-                  }
-                }}
-                disabled={!selectedRegion.tgt_text}
-                className="px-4 py-2 text-primary-600 border border-primary-600 rounded-lg hover:bg-primary-50 disabled:opacity-50"
-              >
-                + Añadir al glosario
-              </button>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setSelectedRegion(null)}
-                  className="px-4 py-2 border rounded-lg hover:bg-gray-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={async () => {
-                    await updateRegionMutation.mutateAsync({
-                      regionId: selectedRegion.id,
-                      updates: {
-                        tgt_text: selectedRegion.tgt_text,
-                        font_size: selectedRegion.font_size,
-                        render_order: selectedRegion.render_order,
-                      },
-                    })
-                    setSelectedRegion(null)
-                  }}
-                  disabled={updateRegionMutation.isPending}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
-                >
-                  {updateRegionMutation.isPending ? 'Guardando...' : 'Guardar'}
-                </button>
-              </div>
-            </div>
-          </div>
+        <div className="fixed right-4 top-20 w-80 z-50">
+          <RegionPropertiesPanel
+            region={selectedRegion}
+            onUpdate={(updates) => {
+              updateRegionMutation.mutate({
+                regionId: selectedRegion.id,
+                updates,
+              })
+              // Actualizar estado local para reflejar cambios inmediatamente
+              setSelectedRegion({ ...selectedRegion, ...updates })
+            }}
+            onDelete={() => {
+              deleteRegionMutation.mutate(selectedRegion.id)
+              setSelectedRegion(null)
+            }}
+            onClose={() => setSelectedRegion(null)}
+            onDuplicate={() => {
+              // Crear duplicado con offset
+              const [x1, y1, x2, y2] = selectedRegion.bbox
+              pagesApi.createTextRegion(projectId!, selectedPage, {
+                bbox: [x1 + 20, y1 + 20, x2 + 20, y2 + 20],
+                src_text: selectedRegion.src_text,
+                tgt_text: selectedRegion.tgt_text || undefined,
+              }).then(() => {
+                refetchRegions()
+              })
+            }}
+          />
         </div>
       )}
     </div>

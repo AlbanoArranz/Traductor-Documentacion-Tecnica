@@ -3,6 +3,7 @@ Servicio de renderizado PDF→PNG usando PyMuPDF.
 """
 
 from pathlib import Path
+from typing import List
 import fitz  # PyMuPDF
 
 
@@ -54,3 +55,50 @@ def render_page(pdf_path: Path, page_number: int, dpi: int, output_dir: Path) ->
     doc.close()
     
     return output_path
+
+
+def render_all_pages(pdf_path: Path, dpi: int, project_dir: Path) -> List[Path]:
+    """
+    Renderiza todas las páginas del PDF de una vez, reutilizando el objeto documento.
+    
+    Args:
+        pdf_path: Ruta al PDF
+        dpi: Resolución
+        project_dir: Directorio del proyecto
+    
+    Returns:
+        Lista de rutas a las imágenes generadas
+    """
+    from typing import List
+    
+    pages_dir = project_dir / "pages"
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    
+    thumbs_dir = project_dir / "thumbs"
+    thumbs_dir.mkdir(parents=True, exist_ok=True)
+    
+    doc = fitz.open(str(pdf_path))
+    output_paths = []
+    
+    try:
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            
+            # Render principal
+            output_path = pages_dir / f"{page_num:03d}_original_{dpi}.png"
+            zoom = dpi / 72.0
+            mat = fitz.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=mat)
+            pix.save(str(output_path))
+            output_paths.append(output_path)
+            
+            # Thumbnail
+            thumb_path = thumbs_dir / f"{page_num:03d}_original.png"
+            thumb_zoom = 150 / 72.0
+            thumb_mat = fitz.Matrix(thumb_zoom, thumb_zoom)
+            thumb_pix = page.get_pixmap(matrix=thumb_mat)
+            thumb_pix.save(str(thumb_path))
+    finally:
+        doc.close()
+    
+    return output_paths

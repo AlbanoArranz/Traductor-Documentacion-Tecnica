@@ -54,13 +54,14 @@ def _han_ratio(text: str) -> float:
     return han_count / len(text)
 
 
-def detect_text(image_path: Path, dpi: int) -> List[TextRegion]:
+def detect_text(image_path: Path, dpi: int, custom_filters: list = None) -> List[TextRegion]:
     """
     Detecta texto chino en una imagen usando EasyOCR.
     
     Args:
         image_path: Ruta a la imagen
         dpi: DPI de la imagen (para calcular tamaños)
+        custom_filters: Lista de filtros OCR personalizados (si None, usa filtros globales)
     
     Returns:
         Lista de TextRegion con texto chino detectado
@@ -76,7 +77,7 @@ def detect_text(image_path: Path, dpi: int) -> List[TextRegion]:
     
     regions = []
     min_han_ratio = get_min_han_ratio()
-    ocr_filters = get_ocr_region_filters()
+    ocr_filters = custom_filters if custom_filters is not None else get_ocr_region_filters()
     
     for item in result:
         bbox_points = item[0]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
@@ -152,3 +153,120 @@ def detect_text(image_path: Path, dpi: int) -> List[TextRegion]:
         regions.append(region)
     
     return regions
+
+
+def detect_text_batch(image_paths: List[Path], dpi: int, custom_filters: list = None) -> List[List[TextRegion]]:
+    """
+    Detecta texto en múltiples imágenes usando batch inference GPU.
+    
+    Args:
+        image_paths: Lista de rutas a imágenes
+        dpi: DPI de las imágenes
+        custom_filters: Filtros OCR opcionales
+    
+    Returns:
+        Lista de listas de TextRegion (una por imagen)
+    """
+    import time
+    import numpy as np
+    start_time = time.time()
+    
+    reader = _get_ocr()
+    
+    # Cargar imágenes como numpy arrays para batch processing
+    image_arrays = []
+    image_info = []
+    for path in image_paths:
+        with Image.open(path) as img:
+            image_info.append({
+                'path': path,
+                'width': img.width,
+                'height': img.height,
+            })
+            image_arrays.append(np.array(img))
+    
+    # Batch OCR con GPU
+    results = reader.readtext(image_arrays)
+    
+    # Procesar resultados
+    all_regions = []
+    min_han_ratio = get_min_han_ratio()
+    ocr_filters = custom_filters if custom_filters is not None else get_ocr_region_filters()
+    
+    for img_idx, (info, page_results) in enumerate(zip(image_info, results)):
+        regions = []
+        project_id = info['path'].parent.parent.name
+        page_number = int(info['path'].stem.split("_")[0])
+        
+        for item in page_results:
+            bbox_points = item[0]
+            text = item[1]
+            confidence = item[2]
+            
+            # Aplicar filtros (misma lógica que detect_text individual)
+            filtered_out = False
+            for f in ocr_filters:
+                mode = f.get("mode")
+                pattern = f.get("pattern")
+                if not mode or not pattern:
+                    continue
+                case_sensitive = bool(f.get("case_sensitive", False))
+                raw_value = text or ""
+                value = raw_value if case_sensitive else raw_value.lower()
+                target = pattern if case_sensitive else str(pattern).lower()
+                try:
+                    if mode == "contains" and target in value:
+                        filtered_out = True
+                        break
+                    if mode == "starts" and value.startswith(target):
+                        filtered_out = True
+                        break
+                    if mode == "ends" and value.endswith(target):
+                        filtered_out = True
+                        break
+                    if mode == "regex":
+                        flags = 0 if case_sensitive else re.IGNORECASE
+                        if re.search(str(pattern), raw_value, flags=flags):
+                            filtered_out = True
+                            break
+                except Exception:
+                    continue
+            
+            if filtered_out:
+                continue
+            
+            if _han_ratio(text) < CJK_RATIO_THRESHOLD:
+                continue
+            if _han_ratio(text) < min_han_ratio:
+                continue
+            
+            # Convertir bbox
+            x_coords = [float(p[0]) for p in bbox_points]
+            y_coords = [float(p[1]) for p in bbox_points]
+            x1, y1 = min(x_coords), min(y_coords)
+            x2, y2 = max(x_coords), max(y_coords)
+            
+            bbox_normalized = [
+                x1 / info['width'],
+                y1 / info['height'],
+                x2 / info['width'],
+                y2 / info['height'],
+            ]
+            
+            region = TextRegion(
+                id=str(uuid.uuid4()),
+                project_id=project_id,
+                page_number=page_number,
+                bbox=[x1, y1, x2, y2],
+                bbox_normalized=bbox_normalized,
+                src_text=text,
+                confidence=confidence,
+            )
+            regions.append(region)
+        
+        all_regions.append(regions)
+    
+    elapsed = time.time() - start_time
+    print(f"OCR batch {len(image_paths)} páginas: {elapsed:.2f}s ({elapsed/len(image_paths):.2f}s/página)")
+    
+    return all_regions

@@ -30,12 +30,16 @@ class ProjectsRepository:
                 if meta_path.exists():
                     with open(meta_path, "r", encoding="utf-8") as f:
                         data = json.load(f)
+                        ocr_filters = data.get("ocr_region_filters", [])
+                        if not isinstance(ocr_filters, list):
+                            ocr_filters = []
                         self._cache[data["id"]] = Project(
                             id=data["id"],
                             name=data["name"],
                             page_count=data["page_count"],
                             status=ProjectStatus(data.get("status", "created")),
                             created_at=datetime.fromisoformat(data["created_at"]),
+                            ocr_region_filters=ocr_filters,
                         )
     
     def _save(self, project: Project):
@@ -50,6 +54,7 @@ class ProjectsRepository:
                 "page_count": project.page_count,
                 "status": project.status.value,
                 "created_at": project.created_at.isoformat(),
+                "ocr_region_filters": project.ocr_region_filters if project.ocr_region_filters else [],
             }, f, ensure_ascii=False, indent=2)
     
     def create(self, id: str, name: str, page_count: int) -> Project:
@@ -164,6 +169,12 @@ class TextRegionsRepository:
                     "compose_mode": r.compose_mode,
                     "font_size": r.font_size,
                     "render_order": getattr(r, 'render_order', 0),
+                    "font_family": getattr(r, 'font_family', 'Arial'),
+                    "text_color": getattr(r, 'text_color', '#000000'),
+                    "bg_color": getattr(r, 'bg_color', None),
+                    "text_align": getattr(r, 'text_align', 'center'),
+                    "rotation": getattr(r, 'rotation', 0.0),
+                    "is_manual": getattr(r, 'is_manual', False),
                 }
                 for r in regions.values()
             ], f, ensure_ascii=False, indent=2)
@@ -185,12 +196,19 @@ class TextRegionsRepository:
         return [r for r in regions.values() if r.page_number == page_number]
     
     def replace_for_page(self, project_id: str, page_number: int, regions: List[TextRegion]):
+        """
+        Reemplaza las regiones de una página.
+        Preserva regiones bloqueadas (locked=True) o manuales (is_manual=True).
+        """
         project_regions = self._get_project_regions(project_id)
-        # Eliminar regiones existentes de esta página
-        to_delete = [rid for rid, r in project_regions.items() if r.page_number == page_number]
+        # Eliminar SOLO regiones NO bloqueadas y NO manuales de esta página
+        to_delete = [
+            rid for rid, r in project_regions.items() 
+            if r.page_number == page_number and not r.locked and not getattr(r, 'is_manual', False)
+        ]
         for rid in to_delete:
             del project_regions[rid]
-        # Añadir nuevas
+        # Añadir nuevas regiones (o actualizar existentes si cambiaron)
         for r in regions:
             project_regions[r.id] = r
         self._save(project_id)

@@ -46,6 +46,13 @@ export interface TextRegion {
   compose_mode: string
   font_size: number | null
   render_order: number
+  // Nuevos campos para editor visual
+  font_family: string
+  text_color: string
+  bg_color: string | null
+  text_align: string
+  rotation: number
+  is_manual: boolean
 }
 
 export interface GlossaryEntry {
@@ -85,6 +92,10 @@ export const projectsApi = {
     return api.post<Project>(`/projects?name=${encodeURIComponent(name)}`, formData)
   },
   delete: (id: string) => api.delete(`/projects/${id}`),
+  getOcrFilters: (projectId: string) =>
+    api.get<{ ocr_region_filters: OcrRegionFilter[] }>(`/projects/${projectId}/ocr-filters`),
+  updateOcrFilters: (projectId: string, filters: OcrRegionFilter[]) =>
+    api.put(`/projects/${projectId}/ocr-filters`, { ocr_region_filters: filters }),
 }
 
 export const pagesApi = {
@@ -95,6 +106,8 @@ export const pagesApi = {
     api.post(`/projects/${projectId}/pages/${pageNumber}/ocr?dpi=${dpi}`),
   getTextRegions: (projectId: string, pageNumber: number) =>
     api.get<TextRegion[]>(`/projects/${projectId}/pages/${pageNumber}/text-regions`),
+  createTextRegion: (projectId: string, pageNumber: number, data: { bbox: number[]; src_text?: string; tgt_text?: string }) =>
+    api.post<TextRegion>(`/projects/${projectId}/pages/${pageNumber}/text-regions`, data),
   updateTextRegion: (projectId: string, regionId: string, data: Partial<TextRegion>) =>
     api.patch<TextRegion>(`/projects/${projectId}/pages/text-regions/${regionId}`, data),
   deleteTextRegion: (projectId: string, regionId: string) =>
@@ -120,8 +133,8 @@ export const globalGlossaryApi = {
 }
 
 export const jobsApi = {
-  startRenderAll: (projectId: string) =>
-    api.post<Job>(`/projects/${projectId}/jobs/render-all/async`),
+  startRenderAll: (projectId: string, dpi = 450) =>
+    api.post<Job>(`/projects/${projectId}/jobs/render-all/async?dpi=${dpi}`),
   getStatus: (projectId: string, jobId: string) =>
     api.get<Job>(`/projects/${projectId}/jobs/${jobId}`),
 }

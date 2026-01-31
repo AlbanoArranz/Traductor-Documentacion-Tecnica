@@ -22,6 +22,7 @@ class Project:
     page_count: int
     status: ProjectStatus = ProjectStatus.CREATED
     created_at: datetime = field(default_factory=datetime.now)
+    ocr_region_filters: List[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -47,6 +48,14 @@ class TextRegion:
     compose_mode: str = "patch"  # "patch" o "inpaint"
     font_size: Optional[int] = None  # Tamaño de fuente manual (None = auto)
     render_order: int = 0  # Orden de renderizado (menor = se dibuja primero/debajo)
+    
+    # NUEVOS CAMPOS para editor visual de cajas
+    font_family: str = "Arial"  # "Arial", "Times New Roman", "Courier New", etc.
+    text_color: str = "#000000"  # Color del texto (hex)
+    bg_color: Optional[str] = None  # Color de fondo (None = auto-estimado)
+    text_align: str = "center"  # "left", "center", "right"
+    rotation: float = 0.0  # Grados de rotación (0-360)
+    is_manual: bool = False  # True si fue creada manualmente (no por OCR)
 
 
 @dataclass

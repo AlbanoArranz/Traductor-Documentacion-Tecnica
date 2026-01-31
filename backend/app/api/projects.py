@@ -115,3 +115,34 @@ async def delete_project(project_id: str):
     projects_repo.delete(project_id)
     
     return {"status": "deleted"}
+
+
+@router.get("/{project_id}/ocr-filters")
+async def get_project_ocr_filters(project_id: str):
+    """Obtiene los filtros OCR del proyecto."""
+    project = projects_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"ocr_region_filters": project.ocr_region_filters or []}
+
+
+@router.put("/{project_id}/ocr-filters")
+async def update_project_ocr_filters(project_id: str, filters: dict):
+    """Actualiza los filtros OCR del proyecto."""
+    project = projects_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    ocr_filters = filters.get("ocr_region_filters", [])
+    if not isinstance(ocr_filters, list):
+        raise HTTPException(status_code=400, detail="ocr_region_filters must be a list")
+    
+    # Validar cada filtro
+    for f in ocr_filters:
+        if not isinstance(f, dict):
+            raise HTTPException(status_code=400, detail="Each filter must be an object")
+        if "mode" not in f or "pattern" not in f:
+            raise HTTPException(status_code=400, detail="Each filter must have 'mode' and 'pattern'")
+    
+    projects_repo.update(project_id, ocr_region_filters=ocr_filters)
+    return {"status": "ok", "ocr_region_filters": ocr_filters}
