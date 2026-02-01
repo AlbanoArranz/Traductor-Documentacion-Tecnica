@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { TextRegion } from '../lib/api';
 
 interface RegionPropertiesPanelProps {
@@ -7,6 +7,7 @@ interface RegionPropertiesPanelProps {
   onDelete: () => void;
   onClose: () => void;
   onDuplicate?: () => void;
+  onAddToGlossary?: (srcTerm: string, tgtTerm: string, scope: 'global' | 'local') => void;
 }
 
 const FONT_OPTIONS = [
@@ -26,6 +27,7 @@ export const RegionPropertiesPanel: React.FC<RegionPropertiesPanelProps> = ({
   onDelete,
   onClose,
   onDuplicate,
+  onAddToGlossary,
 }) => {
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onUpdate({ tgt_text: e.target.value });
@@ -70,6 +72,17 @@ export const RegionPropertiesPanel: React.FC<RegionPropertiesPanelProps> = ({
   const [x1, y1, x2, y2] = region.bbox;
   const width = Math.round(x2 - x1);
   const height = Math.round(y2 - y1);
+
+  // Estado para añadir al glosario
+  const [glossarySrc, setGlossarySrc] = useState(region.src_text || '');
+  const [glossaryTgt, setGlossaryTgt] = useState(region.tgt_text || '');
+  const [glossaryScope, setGlossaryScope] = useState<'global' | 'local'>('global');
+
+  // Actualizar cuando cambia la región
+  useEffect(() => {
+    setGlossarySrc(region.src_text || '');
+    setGlossaryTgt(region.tgt_text || '');
+  }, [region.id, region.src_text, region.tgt_text]);
 
   return (
     <div className="bg-white border rounded-lg shadow-sm p-4 space-y-4 max-h-[80vh] overflow-y-auto">
@@ -299,6 +312,55 @@ export const RegionPropertiesPanel: React.FC<RegionPropertiesPanelProps> = ({
           <option value="inpaint">Inpaint (reconstrucción)</option>
         </select>
       </div>
+
+      {/* Añadir al glosario */}
+      {onAddToGlossary && (
+        <div className="border-t pt-3 space-y-3">
+          <h4 className="text-xs font-medium text-gray-500 uppercase">📚 Añadir al Glosario</h4>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Término origen (ZH)</label>
+            <input
+              type="text"
+              value={glossarySrc}
+              onChange={(e) => setGlossarySrc(e.target.value)}
+              className="w-full px-2 py-1.5 border rounded text-sm"
+              placeholder="Texto en chino..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Término destino (ES)</label>
+            <input
+              type="text"
+              value={glossaryTgt}
+              onChange={(e) => setGlossaryTgt(e.target.value)}
+              className="w-full px-2 py-1.5 border rounded text-sm"
+              placeholder="Texto en español..."
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-700">Ámbito:</label>
+            <select
+              value={glossaryScope}
+              onChange={(e) => setGlossaryScope(e.target.value as 'global' | 'local')}
+              className="flex-1 px-2 py-1.5 border rounded text-sm"
+            >
+              <option value="global">Global (todos los proyectos)</option>
+              <option value="local">Local (solo este proyecto)</option>
+            </select>
+          </div>
+          <button
+            onClick={() => {
+              if (glossarySrc.trim() && glossaryTgt.trim()) {
+                onAddToGlossary(glossarySrc.trim(), glossaryTgt.trim(), glossaryScope);
+              }
+            }}
+            disabled={!glossarySrc.trim() || !glossaryTgt.trim()}
+            className="w-full px-3 py-2 bg-primary-600 text-white rounded text-sm hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            ➕ Añadir al Glosario
+          </button>
+        </div>
+      )}
 
       {/* Info adicional */}
       <div className="border-t pt-3 text-xs text-gray-500">

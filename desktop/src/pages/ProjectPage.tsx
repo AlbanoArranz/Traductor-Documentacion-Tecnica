@@ -23,6 +23,7 @@ import {
 import type { TextRegion, OcrRegionFilter } from '../lib/api'
 import { EditableTextBox } from '../components/EditableTextBox'
 import { RegionPropertiesPanel } from '../components/RegionPropertiesPanel'
+import { HelpMenu } from '../components/HelpMenu'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -341,6 +342,76 @@ export default function ProjectPage() {
     }
   }
 
+  // Ref para evitar stale closure en keyboard handler - usar function updated para obtener estado actual
+  const handleKeyDownRef = useRef<((e: KeyboardEvent) => void) | null>(null)
+  
+  // Actualizar el handler cuando cambie selectedRegion o la mutación
+  useEffect(() => {
+    handleKeyDownRef.current = (e: KeyboardEvent) => {
+      // ESC to deselect all
+      if (e.key === 'Escape') {
+        setSelectedRegion(null)
+        return
+      }
+
+      // Delete to remove selected region
+      if (e.key === 'Delete' && selectedRegion) {
+        e.preventDefault()
+        deleteRegionMutation.mutate(selectedRegion.id)
+        setSelectedRegion(null)
+        return
+      }
+
+      // Arrow keys to move selected region
+      if (!selectedRegion) return
+      
+      const step = e.shiftKey ? 10 : 1 // Shift = move 10px, normal = 1px
+      let dx = 0
+      let dy = 0
+      
+      switch (e.key) {
+        case 'ArrowUp':
+          dy = -step
+          break
+        case 'ArrowDown':
+          dy = step
+          break
+        case 'ArrowLeft':
+          dx = -step
+          break
+        case 'ArrowRight':
+          dx = step
+          break
+        default:
+          return
+      }
+      
+      e.preventDefault()
+      
+      const [x1, y1, x2, y2] = selectedRegion.bbox
+      const newBbox = [x1 + dx, y1 + dy, x2 + dx, y2 + dy]
+      
+      // Actualizar UI inmediatamente (optimistic update)
+      setSelectedRegion({ ...selectedRegion, bbox: newBbox })
+      
+      // Enviar al backend
+      updateRegionMutation.mutate({
+        regionId: selectedRegion.id,
+        updates: { bbox: newBbox },
+      })
+    }
+  }, [selectedRegion, updateRegionMutation, deleteRegionMutation])
+
+  // Keyboard shortcuts: arrow keys to move selected region, ESC to deselect
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      handleKeyDownRef.current?.(e)
+    }
+    
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   const currentPage = pages?.find(p => p.page_number === selectedPage)
   const canShowTranslated = currentPage?.has_translated
   const canShowOriginal = currentPage?.has_original
@@ -394,6 +465,7 @@ export default function ProjectPage() {
             <Download size={18} />
             Exportar PDF
           </button>
+          <HelpMenu />
         </div>
       </header>
 
@@ -457,17 +529,25 @@ export default function ProjectPage() {
             <button
               onClick={() => {
                 // Crear caja manual en el centro de la imagen
-                if (imageSize.width > 0 && imageSize.height > 0) {
-                  const centerX = imageSize.width / 2 - 50
-                  const centerY = imageSize.height / 2 - 15
-                  pagesApi.createTextRegion(projectId!, selectedPage, {
-                    bbox: [centerX, centerY, centerX + 100, centerY + 30],
-                    src_text: '',
-                    tgt_text: 'Nuevo texto',
-                  }).then(() => {
-                    refetchRegions()
-                  })
-                }
+                // Usar tamaño fijo en coordenadas del PDF (aprox 450 DPI)
+                console.log('Create box clicked - creating at center with fixed size')
+                // Tamaño típico de página a 450 DPI: ~3500-5000px de ancho
+                // Usar coordenadas centrales con caja de ~200x60 píxeles (tamaño razonable)
+                const centerX = 2500  // Aproximadamente centro de página típica
+                const centerY = 1800
+                const bbox = [centerX - 100, centerY - 30, centerX + 100, centerY + 30]
+                console.log('Creating text region with bbox:', bbox)
+                pagesApi.createTextRegion(projectId!, selectedPage, {
+                  bbox,
+                  src_text: '',
+                  tgt_text: 'Nuevo texto',
+                }).then((res) => {
+                  console.log('Text region created:', res.data)
+                  refetchRegions()
+                }).catch((err) => {
+                  console.error('Error creating text region:', err)
+                  alert('Error al crear caja: ' + (err.response?.data?.detail || err.message))
+                })
               }}
               disabled={!currentPage?.has_original}
               className="px-3 py-1 text-sm border rounded hover:bg-white disabled:opacity-50"

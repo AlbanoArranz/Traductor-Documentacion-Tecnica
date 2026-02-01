@@ -60,6 +60,12 @@ class TextRegionUpdate(BaseModel):
     line_height: Optional[float] = None
 
 
+class TextRegionCreate(BaseModel):
+    bbox: List[float]
+    src_text: str = ""
+    tgt_text: str = ""
+
+
 @router.get("", response_model=List[PageResponse])
 async def list_pages(project_id: str):
     """Lista todas las páginas de un proyecto."""
@@ -261,6 +267,7 @@ async def update_text_region(
         text_align=getattr(updated, 'text_align', 'center'),
         rotation=getattr(updated, 'rotation', 0.0),
         is_manual=getattr(updated, 'is_manual', False),
+        line_height=getattr(updated, 'line_height', 1.0),
     )
 
 
@@ -268,9 +275,7 @@ async def update_text_region(
 async def create_text_region(
     project_id: str,
     page_number: int,
-    bbox: List[float],
-    src_text: str = "",
-    tgt_text: str = "",
+    data: TextRegionCreate,
 ):
     """Crea una nueva región de texto manual."""
     import uuid
@@ -280,10 +285,10 @@ async def create_text_region(
         id=str(uuid.uuid4()),
         project_id=project_id,
         page_number=page_number,
-        bbox=bbox,
+        bbox=data.bbox,
         bbox_normalized=[0, 0, 0, 0],  # Se calculará si es necesario
-        src_text=src_text,
-        tgt_text=tgt_text or src_text,
+        src_text=data.src_text,
+        tgt_text=data.tgt_text or data.src_text,
         confidence=1.0,
         locked=False,
         needs_review=False,
