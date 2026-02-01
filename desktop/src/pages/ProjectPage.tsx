@@ -428,7 +428,25 @@ export default function ProjectPage() {
           <Link to="/" className="p-2 hover:bg-gray-100 rounded-lg">
             <ArrowLeft size={20} />
           </Link>
-          <h1 className="text-xl font-semibold">{project?.name}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold">{project?.name}</h1>
+            {project?.document_type && (
+              <span
+                className={`px-2 py-1 text-xs font-medium rounded-full ${
+                  project.document_type === 'manual'
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-blue-100 text-blue-800'
+                }`}
+                title={
+                  project.document_type === 'manual'
+                    ? 'Manual técnico: párrafos, texto corrido'
+                    : 'Esquema eléctrico: texto disperso, cajas individuales'
+                }
+              >
+                {project.document_type === 'manual' ? '📄 Manual' : '🔌 Esquema'}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -631,6 +649,7 @@ export default function ProjectPage() {
                         })
                       }
                       onDelete={() => deleteRegionMutation.mutate(region.id)}
+                      documentType={project?.document_type}
                     />
                   ))}
                 </div>
@@ -925,6 +944,41 @@ export default function ProjectPage() {
               }).then(() => {
                 refetchRegions()
               })
+            }}
+            onAddToGlossary={async (srcTerm, tgtTerm, scope) => {
+              try {
+                if (scope === 'global') {
+                  const res = await globalGlossaryApi.get()
+                  const currentEntries = res.data.entries || []
+                  // Verificar si ya existe
+                  const exists = currentEntries.some(e => e.src_term === srcTerm)
+                  if (exists) {
+                    alert('Este término ya existe en el glosario global')
+                    return
+                  }
+                  await globalGlossaryApi.update([
+                    ...currentEntries,
+                    { src_term: srcTerm, tgt_term: tgtTerm, locked: false }
+                  ])
+                  alert(`"${srcTerm}" añadido al glosario global`)
+                } else {
+                  const res = await glossaryApi.get(projectId!)
+                  const currentEntries = res.data.entries || []
+                  const exists = currentEntries.some(e => e.src_term === srcTerm)
+                  if (exists) {
+                    alert('Este término ya existe en el glosario local')
+                    return
+                  }
+                  await glossaryApi.update(projectId!, [
+                    ...currentEntries,
+                    { src_term: srcTerm, tgt_term: tgtTerm, locked: false }
+                  ])
+                  alert(`"${srcTerm}" añadido al glosario local`)
+                }
+              } catch (err) {
+                console.error('Error adding to glossary:', err)
+                alert('Error al añadir al glosario')
+              }
             }}
           />
         </div>

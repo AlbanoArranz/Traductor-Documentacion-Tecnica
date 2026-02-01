@@ -10,6 +10,7 @@ interface EditableTextBoxProps {
   onUpdate: (updates: Partial<TextRegion>) => void;
   onDelete: () => void;
   scale?: number;
+  documentType?: 'schematic' | 'manual';
 }
 
 const HANDLE_SIZE = 8;
@@ -23,6 +24,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
   onUpdate,
   onDelete,
   scale = 1,
+  documentType = 'schematic',
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -44,11 +46,15 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
   const textColor = region.text_color || '#000000';
   const rotation = region.rotation || 0;
 
-  // Determinar color del borde según estado
+  // Determinar color del borde según estado y tipo de documento
   let borderColor = '#9ca3af'; // gray-400 default
   if (region.locked) borderColor = '#dc2626'; // red-600
-  else if (region.is_manual) borderColor = '#16a34a'; // green-600
   else if (isSelected) borderColor = '#2563eb'; // blue-600
+  else if (documentType === 'manual') borderColor = '#059669'; // emerald-600 para manual
+  else if (region.is_manual) borderColor = '#16a34a'; // green-600 para manual caja
+
+  // Para modo manual, ajustar el ancho del borde
+  const borderWidth = documentType === 'manual' ? 2 : 1;
 
   // Handlers de drag
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -133,6 +139,10 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
         case 'ne': nx2 += dxOrig; ny1 += dyOrig; break;
         case 'sw': nx1 += dxOrig; ny2 += dyOrig; break;
         case 'se': nx2 += dxOrig; ny2 += dyOrig; break;
+        case 'n': ny1 += dyOrig; break;
+        case 's': ny2 += dyOrig; break;
+        case 'w': nx1 += dxOrig; break;
+        case 'e': nx2 += dxOrig; break;
       }
 
       // Minimum size (en coordenadas originales)
@@ -194,7 +204,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
           position: 'absolute',
           inset: 0,
           backgroundColor: bgColor,
-          border: `${isSelected ? 2 : 1}px solid ${borderColor}`,
+          border: `${borderWidth}px solid ${borderColor}`,
           borderRadius: 2,
           opacity: isDragging ? 0.8 : 1,
         }}
@@ -277,6 +287,72 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
               }}
             />
           ))}
+
+          {/* Edge resize handles para modo manual o cajas grandes */}
+          {(documentType === 'manual' || sheight > 100) && (
+            <>
+              {/* N */}
+              <div
+                onMouseDown={createResizeHandler('n')}
+                style={{
+                  position: 'absolute',
+                  width: HANDLE_SIZE * 2,
+                  height: HANDLE_SIZE,
+                  backgroundColor: '#2563eb',
+                  border: '1px solid white',
+                  borderRadius: 2,
+                  top: -HANDLE_SIZE/2,
+                  left: `calc(50% - ${HANDLE_SIZE}px)`,
+                  cursor: 'n-resize',
+                }}
+              />
+              {/* S */}
+              <div
+                onMouseDown={createResizeHandler('s')}
+                style={{
+                  position: 'absolute',
+                  width: HANDLE_SIZE * 2,
+                  height: HANDLE_SIZE,
+                  backgroundColor: '#2563eb',
+                  border: '1px solid white',
+                  borderRadius: 2,
+                  bottom: -HANDLE_SIZE/2,
+                  left: `calc(50% - ${HANDLE_SIZE}px)`,
+                  cursor: 's-resize',
+                }}
+              />
+              {/* W */}
+              <div
+                onMouseDown={createResizeHandler('w')}
+                style={{
+                  position: 'absolute',
+                  width: HANDLE_SIZE,
+                  height: HANDLE_SIZE * 2,
+                  backgroundColor: '#2563eb',
+                  border: '1px solid white',
+                  borderRadius: 2,
+                  left: -HANDLE_SIZE/2,
+                  top: `calc(50% - ${HANDLE_SIZE}px)`,
+                  cursor: 'w-resize',
+                }}
+              />
+              {/* E */}
+              <div
+                onMouseDown={createResizeHandler('e')}
+                style={{
+                  position: 'absolute',
+                  width: HANDLE_SIZE,
+                  height: HANDLE_SIZE * 2,
+                  backgroundColor: '#2563eb',
+                  border: '1px solid white',
+                  borderRadius: 2,
+                  right: -HANDLE_SIZE/2,
+                  top: `calc(50% - ${HANDLE_SIZE}px)`,
+                  cursor: 'e-resize',
+                }}
+              />
+            </>
+          )}
 
           {/* Lock/Manual indicators */}
           <div

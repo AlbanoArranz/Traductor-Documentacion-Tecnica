@@ -24,6 +24,7 @@ export interface Project {
   status: string
   page_count: number
   created_at: string
+  document_type: 'schematic' | 'manual'
 }
 
 export interface Page {
@@ -87,10 +88,11 @@ export interface Settings {
 export const projectsApi = {
   list: () => api.get<Project[]>('/projects'),
   get: (id: string) => api.get<Project>(`/projects/${id}`),
-  create: (name: string, file: File) => {
+  create: (name: string, file: File, documentType?: 'schematic' | 'manual') => {
     const formData = new FormData()
     formData.append('file', file)
-    return api.post<Project>(`/projects?name=${encodeURIComponent(name)}`, formData)
+    const docType = documentType || 'schematic'
+    return api.post<Project>(`/projects?name=${encodeURIComponent(name)}&document_type=${docType}`, formData)
   },
   delete: (id: string) => api.delete(`/projects/${id}`),
   getOcrFilters: (projectId: string) =>

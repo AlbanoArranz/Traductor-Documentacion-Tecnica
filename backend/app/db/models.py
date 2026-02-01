@@ -15,6 +15,11 @@ class ProjectStatus(Enum):
     ERROR = "error"
 
 
+class DocumentType(Enum):
+    SCHEMATIC = "schematic"
+    MANUAL = "manual"
+
+
 @dataclass
 class Project:
     id: str
@@ -23,6 +28,7 @@ class Project:
     status: ProjectStatus = ProjectStatus.CREATED
     created_at: datetime = field(default_factory=datetime.now)
     ocr_region_filters: List[dict] = field(default_factory=list)
+    document_type: DocumentType = DocumentType.SCHEMATIC
 
 
 @dataclass

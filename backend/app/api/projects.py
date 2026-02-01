@@ -7,11 +7,11 @@ import shutil
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from pydantic import BaseModel
 
 from ..config import PROJECTS_DIR
-from ..db.models import Project, ProjectStatus
+from ..db.models import Project, ProjectStatus, DocumentType
 from ..db.repository import projects_repo
 
 router = APIRouter()
@@ -27,6 +27,7 @@ class ProjectResponse(BaseModel):
     status: str
     page_count: int
     created_at: str
+    document_type: str = "schematic"
 
     class Config:
         from_attributes = True
@@ -36,6 +37,7 @@ class ProjectResponse(BaseModel):
 async def create_project(
     name: str,
     file: UploadFile = File(...),
+    document_type: str = Query(default="schematic"),
 ):
     """Crea un nuevo proyecto subiendo un PDF."""
     project_id = str(uuid.uuid4())
@@ -52,11 +54,17 @@ async def create_project(
     from ..services.render_service import count_pages
     page_count = count_pages(pdf_path)
     
+    # Validar y convertir document_type
+    doc_type = DocumentType.SCHEMATIC
+    if document_type == "manual":
+        doc_type = DocumentType.MANUAL
+    
     # Crear proyecto en DB
     project = projects_repo.create(
         id=project_id,
         name=name,
         page_count=page_count,
+        document_type=doc_type,
     )
     
     return ProjectResponse(
@@ -65,6 +73,7 @@ async def create_project(
         status=project.status.value,
         page_count=project.page_count,
         created_at=project.created_at.isoformat(),
+        document_type=project.document_type.value,
     )
 
 
@@ -96,6 +105,7 @@ async def get_project(project_id: str):
         status=project.status.value,
         page_count=project.page_count,
         created_at=project.created_at.isoformat(),
+        document_type=project.document_type.value,
     )
 
 

@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from ..config import PROJECTS_DIR, JOBS_DIR
-from .models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job
+from .models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job, DocumentType
 from .global_glossary_repository import GlobalGlossaryRepository
 
 
@@ -40,6 +40,7 @@ class ProjectsRepository:
                             status=ProjectStatus(data.get("status", "created")),
                             created_at=datetime.fromisoformat(data["created_at"]),
                             ocr_region_filters=ocr_filters,
+                            document_type=DocumentType(data.get("document_type", "schematic")),
                         )
     
     def _save(self, project: Project):
@@ -55,10 +56,11 @@ class ProjectsRepository:
                 "status": project.status.value,
                 "created_at": project.created_at.isoformat(),
                 "ocr_region_filters": project.ocr_region_filters if project.ocr_region_filters else [],
+                "document_type": project.document_type.value,
             }, f, ensure_ascii=False, indent=2)
     
-    def create(self, id: str, name: str, page_count: int) -> Project:
-        project = Project(id=id, name=name, page_count=page_count)
+    def create(self, id: str, name: str, page_count: int, document_type: DocumentType = DocumentType.SCHEMATIC) -> Project:
+        project = Project(id=id, name=name, page_count=page_count, document_type=document_type)
         self._cache[id] = project
         self._save(project)
         return project

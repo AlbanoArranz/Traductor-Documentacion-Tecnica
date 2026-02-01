@@ -140,9 +140,14 @@ async def run_ocr(
             if key not in seen_patterns:
                 custom_filters.append(f)
     
-    # Ejecutar OCR con filtros personalizados
+    # Ejecutar OCR con filtros personalizados y tipo de documento
     try:
-        regions = ocr_service.detect_text(image_path, dpi, custom_filters=custom_filters if custom_filters else None)
+        regions = ocr_service.detect_text(
+            image_path, 
+            dpi, 
+            custom_filters=custom_filters if custom_filters else None,
+            document_type=project.document_type.value
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
     

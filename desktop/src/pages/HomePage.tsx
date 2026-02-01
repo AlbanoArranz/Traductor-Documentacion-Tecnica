@@ -11,6 +11,7 @@ export default function HomePage() {
   const [isCreating, setIsCreating] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [documentType, setDocumentType] = useState<'schematic' | 'manual'>('schematic')
 
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects'],
@@ -18,14 +19,15 @@ export default function HomePage() {
   })
 
   const createMutation = useMutation({
-    mutationFn: ({ name, file }: { name: string; file: File }) =>
-      projectsApi.create(name, file),
+    mutationFn: ({ name, file, docType }: { name: string; file: File; docType: 'schematic' | 'manual' }) =>
+      projectsApi.create(name, file, docType),
     onSuccess: (res) => {
       console.log('Project created:', res.data)
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       setIsCreating(false)
       setNewProjectName('')
       setSelectedFile(null)
+      setDocumentType('schematic')
       navigate(`/project/${res.data.id}`)
     },
     onError: (error: any) => {
@@ -54,10 +56,10 @@ export default function HomePage() {
   }
 
   const handleCreate = () => {
-    console.log('handleCreate called', { newProjectName, selectedFile })
+    console.log('handleCreate called', { newProjectName, selectedFile, documentType })
     if (newProjectName && selectedFile) {
       console.log('Calling mutation...')
-      createMutation.mutate({ name: newProjectName, file: selectedFile })
+      createMutation.mutate({ name: newProjectName, file: selectedFile, docType: documentType })
     } else {
       console.log('Missing name or file')
     }
@@ -93,6 +95,41 @@ export default function HomePage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   placeholder="Mi proyecto"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tipo de documento
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                    <input
+                      type="radio"
+                      name="documentType"
+                      value="schematic"
+                      checked={documentType === 'schematic'}
+                      onChange={(e) => setDocumentType(e.target.value as 'schematic' | 'manual')}
+                      className="w-4 h-4 text-primary-600"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-800">Esquema eléctrico</div>
+                      <div className="text-xs text-gray-500">Texto disperso, cajas individuales</div>
+                    </div>
+                  </label>
+                  <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                    <input
+                      type="radio"
+                      name="documentType"
+                      value="manual"
+                      checked={documentType === 'manual'}
+                      onChange={(e) => setDocumentType(e.target.value as 'schematic' | 'manual')}
+                      className="w-4 h-4 text-primary-600"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-800">Manual técnico</div>
+                      <div className="text-xs text-gray-500">Párrafos, texto corrido</div>
+                    </div>
+                  </label>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">

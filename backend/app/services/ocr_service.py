@@ -54,7 +54,7 @@ def _han_ratio(text: str) -> float:
     return han_count / len(text)
 
 
-def detect_text(image_path: Path, dpi: int, custom_filters: list = None) -> List[TextRegion]:
+def detect_text(image_path: Path, dpi: int, custom_filters: list = None, document_type: str = "schematic") -> List[TextRegion]:
     """
     Detecta texto chino en una imagen usando EasyOCR.
     
@@ -62,6 +62,7 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None) -> List
         image_path: Ruta a la imagen
         dpi: DPI de la imagen (para calcular tamaños)
         custom_filters: Lista de filtros OCR personalizados (si None, usa filtros globales)
+        document_type: Tipo de documento ('schematic' o 'manual')
     
     Returns:
         Lista de TextRegion con texto chino detectado
@@ -152,7 +153,114 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None) -> List
         )
         regions.append(region)
     
+    # Para modo manual, agrupar líneas en párrafos
+    if document_type == "manual" and len(regions) > 1:
+        regions = _group_lines_into_paragraphs(regions)
+    
     return regions
+
+
+def _group_lines_into_paragraphs(regions: List[TextRegion]) -> List[TextRegion]:
+    """
+    Agrupa líneas de texto cercanas en párrafos para modo manual.
+    
+    Criterios de agrupación:
+    - Solapamiento horizontal > 50% (misma columna)
+    - Distancia vertical < 1.5x alto promedio (líneas consecutivas)
+    """
+    if not regions:
+        return regions
+    
+    # Ordenar por posición Y (de arriba a abajo)
+    sorted_regions = sorted(regions, key=lambda r: r.bbox[1])
+    
+    grouped = []
+    current_group = [sorted_regions[0]]
+    
+    for i in range(1, len(sorted_regions)):
+        prev = current_group[-1]
+        curr = sorted_regions[i]
+        
+        # Calcular solapamiento horizontal
+        prev_x1, prev_y1, prev_x2, prev_y2 = prev.bbox
+        curr_x1, curr_y1, curr_x2, curr_y2 = curr.bbox
+        
+        prev_width = prev_x2 - prev_x1
+        curr_width = curr_x2 - curr_x1
+        
+        # Solapamiento en X
+        overlap_x = min(prev_x2, curr_x2) - max(prev_x1, curr_x1)
+        min_width = min(prev_width, curr_width)
+        x_overlap_ratio = overlap_x / min_width if min_width > 0 else 0
+        
+        # Distancia vertical
+        prev_height = prev_y2 - prev_y1
+        curr_height = curr_y2 - curr_y1
+        avg_height = (prev_height + curr_height) / 2
+        vertical_gap = curr_y1 - prev_y2
+        
+        # Criterios de agrupación
+        should_group = (
+            x_overlap_ratio > 0.5 and  # >50% solapamiento horizontal
+            vertical_gap < avg_height * 1.5  # Distancia < 1.5x alto
+        )
+        
+        if should_group:
+            current_group.append(curr)
+        else:
+            # Finalizar grupo actual y empezar nuevo
+            grouped.append(_merge_regions(current_group))
+            current_group = [curr]
+    
+    # No olvidar el último grupo
+    if current_group:
+        grouped.append(_merge_regions(current_group))
+    
+    return grouped
+
+
+def _merge_regions(regions: List[TextRegion]) -> TextRegion:
+    """Fusiona múltiples regiones en una sola (para párrafos)."""
+    if len(regions) == 1:
+        return regions[0]
+    
+    # Usar la primera región como base
+    base = regions[0]
+    
+    # Calcular bbox que abarca todas las regiones
+    all_x1 = [r.bbox[0] for r in regions]
+    all_y1 = [r.bbox[1] for r in regions]
+    all_x2 = [r.bbox[2] for r in regions]
+    all_y2 = [r.bbox[3] for r in regions]
+    
+    merged_bbox = [min(all_x1), min(all_y1), max(all_x2), max(all_y2)]
+    
+    # Calcular bbox normalizado
+    img_width = base.bbox[2] / base.bbox_normalized[2] if base.bbox_normalized[2] > 0 else 1
+    img_height = base.bbox[3] / base.bbox_normalized[3] if base.bbox_normalized[3] > 0 else 1
+    
+    merged_bbox_normalized = [
+        merged_bbox[0] / img_width,
+        merged_bbox[1] / img_height,
+        merged_bbox[2] / img_width,
+        merged_bbox[3] / img_height,
+    ]
+    
+    # Combinar textos con espacio entre líneas
+    merged_text = " ".join(r.src_text for r in regions)
+    
+    # Promediar confianza
+    avg_confidence = sum(r.confidence for r in regions) / len(regions)
+    
+    return TextRegion(
+        id=str(uuid.uuid4()),
+        project_id=base.project_id,
+        page_number=base.page_number,
+        bbox=merged_bbox,
+        bbox_normalized=merged_bbox_normalized,
+        src_text=merged_text,
+        confidence=avg_confidence,
+    )
 
 
 def detect_text_batch(image_paths: List[Path], dpi: int, custom_filters: list = None) -> List[List[TextRegion]]:
