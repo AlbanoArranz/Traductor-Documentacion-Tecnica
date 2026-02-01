@@ -520,9 +520,16 @@ export default function ProjectPage() {
                 selectedPage === i ? 'border-primary-500' : 'border-transparent hover:border-gray-300'
               }`}
             >
-              <div className="aspect-[3/4] bg-gray-200 rounded flex items-center justify-center text-sm text-gray-500">
-                {i + 1}
-              </div>
+              <img
+                src={pagesApi.getThumbnailUrl(projectId!, i, 'original')}
+                alt={`Página ${i + 1}`}
+                className="w-full aspect-[3/4] object-cover rounded bg-gray-200"
+                onError={(e) => {
+                  // Si la imagen no existe, mostrar placeholder con número
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  (e.target as HTMLImageElement).parentElement!.innerHTML = `<div class="aspect-[3/4] bg-gray-200 rounded flex items-center justify-center text-sm text-gray-500">${i + 1}</div>`;
+                }}
+              />
             </button>
           ))}
         </aside>
