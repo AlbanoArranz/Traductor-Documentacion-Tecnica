@@ -1,6 +1,6 @@
 ---
 name: skill-master
-description: Genera (scaffold) nuevas Skills para Windsurf (.windsurf/skills) con buenas prácticas: metadatos claros, progressive disclosure, ejemplos y guardrails.
+description: "Genera (scaffold) nuevas Skills para Windsurf (.windsurf/skills) con buenas practicas: metadatos claros, progressive disclosure, ejemplos y guardrails."
 ---
 
 ## Objetivo
