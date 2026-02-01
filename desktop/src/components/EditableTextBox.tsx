@@ -6,7 +6,7 @@ interface EditableTextBoxProps {
   imageSize: { width: number; height: number };
   isSelected: boolean;
   index?: number;
-  onSelect: () => void;
+  onSelect: (e?: React.MouseEvent) => void;
   onUpdate: (updates: Partial<TextRegion>) => void;
   onDelete: () => void;
   scale?: number;
@@ -60,7 +60,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (isEditing) return;
     e.stopPropagation();
-    onSelect();
+    onSelect(e);
     
     if (!region.locked) {
       setIsDragging(true);

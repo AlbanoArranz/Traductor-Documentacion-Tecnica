@@ -29,11 +29,15 @@ export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const queryClient = useQueryClient()
   const [selectedPage, setSelectedPage] = useState(0)
-  const [selectedRegion, setSelectedRegion] = useState<TextRegion | null>(null)
+  const [selectedRegionIds, setSelectedRegionIds] = useState<Set<string>>(new Set())
+  const [isDraggingSelection, setIsDraggingSelection] = useState(false)
+  const [selectionRect, setSelectionRect] = useState<{x: number, y: number, width: number, height: number} | null>(null)
+  const [dragStart, setDragStart] = useState<{x: number, y: number} | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobProgress, setJobProgress] = useState(0)
   const [jobStep, setJobStep] = useState('')
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null)
+  const imageViewerRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 })
   const [imageTimestamp, setImageTimestamp] = useState(Date.now())
@@ -51,6 +55,12 @@ export default function ProjectPage() {
   const [composeAllRunning, setComposeAllRunning] = useState(false)
   const [confirmComposeAll, setConfirmComposeAll] = useState(false)
   const [composeAllProgress, setComposeAllProgress] = useState<{ current: number; total: number } | null>(null)
+  
+  // Estado para zoom
+  const [zoomLevel, setZoomLevel] = useState(1)
+  const ZOOM_STEP = 0.25
+  const MIN_ZOOM = 0.25
+  const MAX_ZOOM = 4
   
   // Estado para filtros OCR del proyecto
   const [projectOcrFilters, setProjectOcrFilters] = useState<OcrRegionFilter[]>([])
@@ -131,14 +141,21 @@ export default function ProjectPage() {
   })
 
   const deleteRegionMutation = useMutation({
-    mutationFn: (regionId: string) => {
+    mutationFn: async (regionId: string) => {
       console.log('Deleting region:', regionId)
-      return pagesApi.deleteTextRegion(projectId!, regionId)
+      await pagesApi.deleteTextRegion(projectId!, regionId)
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       console.log('Region deleted successfully')
       refetchRegions()
-      setSelectedRegion(null)
+      setSelectedRegionIds(new Set())
+      // Re-renderizar la página traducida para reflejar el borrado
+      try {
+        await pagesApi.renderTranslated(projectId!, selectedPage)
+        setImageTimestamp(Date.now())
+      } catch (e) {
+        console.error('Error re-rendering after delete:', e)
+      }
     },
     onError: (err) => {
       console.error('Error deleting region:', err)
@@ -259,8 +276,10 @@ export default function ProjectPage() {
           setBulkDeleteProgress({ current: i + 1, total: idsToDelete.length })
         }
         await refetchRegions()
-        if (selectedRegion && idsToDelete.includes(selectedRegion.id)) {
-          setSelectedRegion(null)
+        if (selectedRegionIds.size > 0) {
+          const idsToDelete = filteredRegions.map((r) => r.id)
+          const hasSelection = idsToDelete.some(id => selectedRegionIds.has(id))
+          if (hasSelection) setSelectedRegionIds(new Set())
         }
         return
       }
@@ -282,13 +301,11 @@ export default function ProjectPage() {
       }
 
       await refetchRegions()
-      // Si la región seleccionada ya no existe, cerrar modal
-      if (selectedRegion) {
-        const stillExists = (await pagesApi.getTextRegions(projectId, selectedPage)).data.some(
-          (r) => r.id === selectedRegion.id
-        )
-        if (!stillExists) setSelectedRegion(null)
-      }
+      // Si la región seleccionada ya no existe, limpiar selección
+      const stillExists = (await pagesApi.getTextRegions(projectId, selectedPage)).data.some(
+        (r) => selectedRegionIds.has(r.id)
+      )
+      if (!stillExists) setSelectedRegionIds(new Set())
     } catch (e) {
       console.error('Error bulk deleting regions:', e)
       alert('Error al eliminar regiones filtradas')
@@ -326,21 +343,45 @@ export default function ProjectPage() {
   }, [jobId, projectId, queryClient])
 
   // Update image size when loaded
-  const [imageScale, setImageScale] = useState(1)
+  const [baseImageScale, setBaseImageScale] = useState(1)
+
+  const recomputeBaseImageScale = () => {
+    const viewer = imageViewerRef.current
+    if (!viewer) return
+    if (imageSize.width <= 0 || imageSize.height <= 0) return
+
+    // p-4 => 16px padding por lado (aprox). Restamos para evitar que se corte.
+    const availableWidth = Math.max(1, viewer.clientWidth - 32)
+    const fitScale = Math.min(1, availableWidth / imageSize.width)
+    setBaseImageScale(fitScale)
+  }
+
   const handleImageLoad = () => {
     if (imageRef.current) {
       const naturalWidth = imageRef.current.naturalWidth
       const naturalHeight = imageRef.current.naturalHeight
-      const displayWidth = imageRef.current.clientWidth
-      const displayHeight = imageRef.current.clientHeight
       
+      // Usar dimensiones naturales para el overlay
       setImageSize({
-        width: displayWidth,
-        height: displayHeight,
+        width: naturalWidth,
+        height: naturalHeight,
       })
-      setImageScale(displayWidth / naturalWidth)
     }
   }
+
+  useEffect(() => {
+    // Recalcular cuando ya tenemos tamaño de imagen o cambia el tamaño del visor
+    recomputeBaseImageScale()
+  }, [imageSize.width, imageSize.height])
+
+  useEffect(() => {
+    const onResize = () => recomputeBaseImageScale()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [imageSize.width, imageSize.height])
+  
+  // Scale combinado: base (ajuste a pantalla) * zoom del usuario
+  const imageScale = baseImageScale * zoomLevel
 
   // Ref para evitar stale closure en keyboard handler - usar function updated para obtener estado actual
   const handleKeyDownRef = useRef<((e: KeyboardEvent) => void) | null>(null)
@@ -350,22 +391,30 @@ export default function ProjectPage() {
     handleKeyDownRef.current = (e: KeyboardEvent) => {
       // ESC to deselect all
       if (e.key === 'Escape') {
-        setSelectedRegion(null)
+        setSelectedRegionIds(new Set())
+      }
+
+      // Delete to remove selected regions
+      if (e.key === 'Delete') {
+        // Use functional state update to get fresh selectedRegionIds
+        setSelectedRegionIds(prevIds => {
+          const selectedIds = Array.from(prevIds)
+          if (selectedIds.length > 0) {
+            e.preventDefault()
+            selectedIds.forEach(id => {
+              deleteRegionMutation.mutate(id)
+            })
+            return new Set()
+          }
+          return prevIds
+        })
         return
       }
 
-      // Delete to remove selected region
-      if (e.key === 'Delete' && selectedRegion) {
-        e.preventDefault()
-        deleteRegionMutation.mutate(selectedRegion.id)
-        setSelectedRegion(null)
-        return
-      }
-
-      // Arrow keys to move selected region
-      if (!selectedRegion) return
+      // Arrow keys to move selected regions
+      if (selectedRegionIds.size === 0) return
       
-      const step = e.shiftKey ? 10 : 1 // Shift = move 10px, normal = 1px
+      const step = e.shiftKey ? 10 : 1
       let dx = 0
       let dy = 0
       
@@ -388,19 +437,19 @@ export default function ProjectPage() {
       
       e.preventDefault()
       
-      const [x1, y1, x2, y2] = selectedRegion.bbox
-      const newBbox = [x1 + dx, y1 + dy, x2 + dx, y2 + dy]
-      
-      // Actualizar UI inmediatamente (optimistic update)
-      setSelectedRegion({ ...selectedRegion, bbox: newBbox })
-      
-      // Enviar al backend
-      updateRegionMutation.mutate({
-        regionId: selectedRegion.id,
-        updates: { bbox: newBbox },
+      // Move all selected regions
+      const selectedRegions = (regions || []).filter(r => selectedRegionIds.has(r.id))
+      selectedRegions.forEach(region => {
+        const [x1, y1, x2, y2] = region.bbox
+        const newBbox = [x1 + dx, y1 + dy, x2 + dx, y2 + dy]
+        
+        updateRegionMutation.mutate({
+          regionId: region.id,
+          updates: { bbox: newBbox },
+        })
       })
     }
-  }, [selectedRegion, updateRegionMutation, deleteRegionMutation])
+  }, [selectedRegionIds, updateRegionMutation, deleteRegionMutation])
 
   // Keyboard shortcuts: arrow keys to move selected region, ESC to deselect
   useEffect(() => {
@@ -410,6 +459,59 @@ export default function ProjectPage() {
     
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Zoom con Ctrl/Cmd + rueda del ratón y gestos de trackpad
+  useEffect(() => {
+    const imageViewer = document.querySelector('.overflow-auto.p-4.bg-gray-100')
+    if (!imageViewer) return
+
+    const handleWheel = (e: Event) => {
+      const wheelEvent = e as WheelEvent
+      // Ctrl/Cmd + wheel para zoom (ratón tradicional)
+      if (wheelEvent.ctrlKey || wheelEvent.metaKey) {
+        e.preventDefault()
+        const delta = wheelEvent.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
+        setZoomLevel(prev => {
+          const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev + delta))
+          return newZoom
+        })
+        return
+      }
+
+      // Detectar gesto de pinch en trackpad (deltaY con ctrlKey false pero comportamiento de pinch)
+      // Los trackpads suelen enviar deltaY con valor grande y e.ctrlKey false durante pinch
+      if (Math.abs(wheelEvent.deltaY) > 50 && wheelEvent.deltaMode === 0) {
+        // Posible gesto de pinch en trackpad
+        const delta = wheelEvent.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP
+        setZoomLevel(prev => {
+          const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev + delta))
+          return newZoom
+        })
+      }
+    }
+
+    // Prevenir zoom del navegador con Ctrl+wheel
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '0')) {
+        e.preventDefault()
+        if (e.key === '+') {
+          setZoomLevel(prev => Math.min(MAX_ZOOM, prev + ZOOM_STEP))
+        } else if (e.key === '-') {
+          setZoomLevel(prev => Math.max(MIN_ZOOM, prev - ZOOM_STEP))
+        } else if (e.key === '0') {
+          setZoomLevel(1)
+        }
+      }
+    }
+
+    imageViewer.addEventListener('wheel', handleWheel, { passive: false })
+    window.addEventListener('keydown', handleKeyDown)
+    
+    return () => {
+      imageViewer.removeEventListener('wheel', handleWheel)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
   }, [])
 
   const currentPage = pages?.find(p => p.page_number === selectedPage)
@@ -535,7 +637,7 @@ export default function ProjectPage() {
         </aside>
 
         {/* Image viewer */}
-        <div className="flex-1 overflow-auto p-4 bg-gray-100">
+        <div ref={imageViewerRef} className="flex-1 overflow-auto p-4 bg-gray-100">
           <div className="flex gap-2 mb-4">
             <button
               onClick={() => renderMutation.mutate()}
@@ -620,6 +722,36 @@ export default function ProjectPage() {
                 Ver: {showTranslated ? 'Traducida' : 'Original'}
               </button>
             )}
+            {/* Controles de Zoom */}
+            <div className="flex items-center gap-1 ml-4 border rounded bg-white">
+              <button
+                onClick={() => setZoomLevel(Math.max(MIN_ZOOM, zoomLevel - ZOOM_STEP))}
+                disabled={zoomLevel <= MIN_ZOOM}
+                className="px-2 py-1 text-sm hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Alejar (-)"
+              >
+                −
+              </button>
+              <span className="px-2 text-sm font-medium min-w-[3.5rem] text-center">
+                {Math.round(zoomLevel * 100)}%
+              </span>
+              <button
+                onClick={() => setZoomLevel(Math.min(MAX_ZOOM, zoomLevel + ZOOM_STEP))}
+                disabled={zoomLevel >= MAX_ZOOM}
+                className="px-2 py-1 text-sm hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Acercar (+)"
+              >
+                +
+              </button>
+              <button
+                onClick={() => setZoomLevel(1)}
+                disabled={zoomLevel === 1}
+                className="px-2 py-1 text-sm hover:bg-gray-100 border-l disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Reset zoom (100%)"
+              >
+                ⟲
+              </button>
+            </div>
           </div>
 
           {imageUrl ? (
@@ -628,7 +760,13 @@ export default function ProjectPage() {
                 ref={imageRef}
                 src={imageUrl}
                 alt={`Página ${selectedPage + 1}`}
-                className="max-w-full shadow-lg"
+                className="shadow-lg block"
+                style={{
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                  width: imageSize.width > 0 ? imageSize.width * imageScale : undefined,
+                  height: imageSize.height > 0 ? imageSize.height * imageScale : undefined,
+                }}
                 onLoad={handleImageLoad}
               />
               {/* Overlay interactivo para regiones de texto */}
@@ -636,19 +774,102 @@ export default function ProjectPage() {
                 <div
                   className="absolute top-0 left-0"
                   style={{
-                    width: imageSize.width,
-                    height: imageSize.height,
+                    width: imageSize.width * imageScale,
+                    height: imageSize.height * imageScale,
+                    cursor: isDraggingSelection ? 'crosshair' : 'default',
+                  }}
+                  onMouseDown={(e) => {
+                    // Solo iniciar drag si no se hizo click en una caja
+                    if (e.target === e.currentTarget) {
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const x = (e.clientX - rect.left)
+                      const y = (e.clientY - rect.top)
+                      setDragStart({ x, y })
+                      setSelectionRect({ x, y, width: 0, height: 0 })
+                      setIsDraggingSelection(true)
+                      if (!e.ctrlKey && !e.metaKey) {
+                        setSelectedRegionIds(new Set())
+                      }
+                    }
+                  }}
+                  onMouseMove={(e) => {
+                    if (!isDraggingSelection || !dragStart) return
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const x = (e.clientX - rect.left)
+                    const y = (e.clientY - rect.top)
+                    const newRect = {
+                      x: Math.min(dragStart.x, x),
+                      y: Math.min(dragStart.y, y),
+                      width: Math.abs(x - dragStart.x),
+                      height: Math.abs(y - dragStart.y),
+                    }
+                    setSelectionRect(newRect)
+                  }}
+                  onMouseUp={() => {
+                    if (!isDraggingSelection || !selectionRect) {
+                      setIsDraggingSelection(false)
+                      setDragStart(null)
+                      return
+                    }
+                    // Detectar cajas dentro del rectángulo de selección
+                    const selectedIds = new Set(selectedRegionIds)
+                    regions.forEach((region) => {
+                      const [x1, y1, x2, y2] = region.bbox
+                      const sx1 = x1 * imageScale
+                      const sy1 = y1 * imageScale
+                      const sx2 = x2 * imageScale
+                      const sy2 = y2 * imageScale
+                      // Verificar si la caja intersecta con el rectángulo de selección
+                      const intersects = !(
+                        sx2 < selectionRect.x ||
+                        sx1 > selectionRect.x + selectionRect.width ||
+                        sy2 < selectionRect.y ||
+                        sy1 > selectionRect.y + selectionRect.height
+                      )
+                      if (intersects) {
+                        selectedIds.add(region.id)
+                      }
+                    })
+                    setSelectedRegionIds(selectedIds)
+                    setIsDraggingSelection(false)
+                    setDragStart(null)
+                    setSelectionRect(null)
                   }}
                 >
+                  {/* Rectángulo de selección */}
+                  {selectionRect && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: selectionRect.x,
+                        top: selectionRect.y,
+                        width: selectionRect.width,
+                        height: selectionRect.height,
+                        backgroundColor: 'rgba(37, 99, 235, 0.2)',
+                        border: '2px dashed #2563eb',
+                        pointerEvents: 'none',
+                        zIndex: 1000,
+                      }}
+                    />
+                  )}
                   {regions.map((region, index) => (
                     <EditableTextBox
                       key={region.id}
                       region={region}
                       imageSize={imageSize}
                       scale={imageScale}
-                      isSelected={selectedRegion?.id === region.id}
+                      isSelected={selectedRegionIds.has(region.id)}
                       index={index}
-                      onSelect={() => setSelectedRegion(region)}
+                      onSelect={(e) => {
+                        if (e?.ctrlKey || e?.metaKey) {
+                          const newIds = new Set(selectedRegionIds)
+                          if (newIds.has(region.id)) newIds.delete(region.id)
+                          else newIds.add(region.id)
+                          setSelectedRegionIds(newIds)
+                        } else {
+                          setSelectedRegionIds(new Set([region.id]))
+                        }
+                      }}
                       onUpdate={(updates) =>
                         updateRegionMutation.mutate({
                           regionId: region.id,
@@ -880,9 +1101,18 @@ export default function ProjectPage() {
               <div
                 key={region.id}
                 className={`p-3 cursor-pointer hover:bg-gray-50 ${
-                  selectedRegion?.id === region.id ? 'bg-primary-50' : ''
+                  selectedRegionIds.has(region.id) ? 'bg-primary-50' : ''
                 }`}
-                onClick={() => setSelectedRegion(region)}
+                onClick={(e) => {
+                  if (e.ctrlKey || e.metaKey) {
+                    const newIds = new Set(selectedRegionIds)
+                    if (newIds.has(region.id)) newIds.delete(region.id)
+                    else newIds.add(region.id)
+                    setSelectedRegionIds(newIds)
+                  } else {
+                    setSelectedRegionIds(new Set([region.id]))
+                  }
+                }}
                 onMouseEnter={() => setHoveredRegion(region.id)}
                 onMouseLeave={() => setHoveredRegion(null)}
               >
@@ -923,8 +1153,11 @@ export default function ProjectPage() {
         </aside>
       </div>
 
-      {/* Region edit panel - reemplaza el modal */}
-      {selectedRegion && (
+      {/* Region edit panel - solo muestra cuando hay exactamente 1 seleccionada */}
+      {selectedRegionIds.size === 1 && (() => {
+        const selectedRegion = regions?.find(r => selectedRegionIds.has(r.id))
+        if (!selectedRegion) return null
+        return (
         <div className="fixed right-4 top-20 w-80 z-50">
           <RegionPropertiesPanel
             region={selectedRegion}
@@ -933,53 +1166,39 @@ export default function ProjectPage() {
                 regionId: selectedRegion.id,
                 updates,
               })
-              // Actualizar estado local para reflejar cambios inmediatamente
-              setSelectedRegion({ ...selectedRegion, ...updates })
             }}
             onDelete={() => {
               deleteRegionMutation.mutate(selectedRegion.id)
-              setSelectedRegion(null)
+              setSelectedRegionIds(new Set())
             }}
-            onClose={() => setSelectedRegion(null)}
+            onClose={() => setSelectedRegionIds(new Set())}
             onDuplicate={() => {
-              // Crear duplicado con offset
               const [x1, y1, x2, y2] = selectedRegion.bbox
               pagesApi.createTextRegion(projectId!, selectedPage, {
                 bbox: [x1 + 20, y1 + 20, x2 + 20, y2 + 20],
                 src_text: selectedRegion.src_text,
                 tgt_text: selectedRegion.tgt_text || undefined,
-              }).then(() => {
-                refetchRegions()
-              })
+              }).then(() => refetchRegions())
             }}
             onAddToGlossary={async (srcTerm, tgtTerm, scope) => {
               try {
                 if (scope === 'global') {
                   const res = await globalGlossaryApi.get()
                   const currentEntries = res.data.entries || []
-                  // Verificar si ya existe
-                  const exists = currentEntries.some(e => e.src_term === srcTerm)
-                  if (exists) {
+                  if (currentEntries.some(e => e.src_term === srcTerm)) {
                     alert('Este término ya existe en el glosario global')
                     return
                   }
-                  await globalGlossaryApi.update([
-                    ...currentEntries,
-                    { src_term: srcTerm, tgt_term: tgtTerm, locked: false }
-                  ])
+                  await globalGlossaryApi.update([...currentEntries, { src_term: srcTerm, tgt_term: tgtTerm, locked: false }])
                   alert(`"${srcTerm}" añadido al glosario global`)
                 } else {
                   const res = await glossaryApi.get(projectId!)
                   const currentEntries = res.data.entries || []
-                  const exists = currentEntries.some(e => e.src_term === srcTerm)
-                  if (exists) {
+                  if (currentEntries.some(e => e.src_term === srcTerm)) {
                     alert('Este término ya existe en el glosario local')
                     return
                   }
-                  await glossaryApi.update(projectId!, [
-                    ...currentEntries,
-                    { src_term: srcTerm, tgt_term: tgtTerm, locked: false }
-                  ])
+                  await glossaryApi.update(projectId!, [...currentEntries, { src_term: srcTerm, tgt_term: tgtTerm, locked: false }])
                   alert(`"${srcTerm}" añadido al glosario local`)
                 }
               } catch (err) {
@@ -989,7 +1208,8 @@ export default function ProjectPage() {
             }}
           />
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
