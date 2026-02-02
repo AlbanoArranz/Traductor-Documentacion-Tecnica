@@ -55,6 +55,7 @@ export default function ProjectPage() {
   const [composeAllRunning, setComposeAllRunning] = useState(false)
   const [confirmComposeAll, setConfirmComposeAll] = useState(false)
   const [composeAllProgress, setComposeAllProgress] = useState<{ current: number; total: number } | null>(null)
+  const [isMultiDeleting, setIsMultiDeleting] = useState(false)
   
   // Estado para zoom
   const [zoomLevel, setZoomLevel] = useState(1)
@@ -159,7 +160,10 @@ export default function ProjectPage() {
     },
     onError: (err) => {
       console.error('Error deleting region:', err)
-      alert('Error al eliminar la región')
+      // Don't show alert during multi-delete to avoid spam
+      if (!isMultiDeleting) {
+        alert('Error al eliminar la región')
+      }
     },
   })
 
@@ -396,11 +400,19 @@ export default function ProjectPage() {
 
       // Delete to remove selected regions
       if (e.key === 'Delete') {
+        e.preventDefault()
+        
         // Use functional state update to get fresh selectedRegionIds
         setSelectedRegionIds(prevIds => {
           const selectedIds = Array.from(prevIds)
           if (selectedIds.length > 0) {
-            e.preventDefault()
+            // Set flag for multi-delete to suppress individual error alerts
+            if (selectedIds.length > 1) {
+              setIsMultiDeleting(true)
+              // Clear flag after all deletions complete
+              setTimeout(() => setIsMultiDeleting(false), 1000)
+            }
+            
             selectedIds.forEach(id => {
               deleteRegionMutation.mutate(id)
             })
