@@ -139,7 +139,13 @@ async def preview_pdf(
         page = doc[0]
         zoom = dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat, rotate=rotation)
+        if rotation:
+            # Compatibilidad PyMuPDF: prerotate() (nuevo) / preRotate() (antiguo)
+            if hasattr(mat, "prerotate"):
+                mat = mat.prerotate(rotation)
+            else:
+                mat = mat.preRotate(rotation)
+        pix = page.get_pixmap(matrix=mat)
         png_bytes = pix.tobytes("png")
     finally:
         doc.close()

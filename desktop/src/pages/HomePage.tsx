@@ -68,7 +68,13 @@ export default function HomePage() {
         })
       } catch (e: any) {
         console.error('Error generating PDF preview:', e)
-        setPreviewError(e?.response?.data?.detail || e?.message || 'Error generando previsualización')
+        if (!e?.response) {
+          setPreviewError(
+            'No se puede conectar al backend (http://127.0.0.1:8000). Asegúrate de que esté en ejecución.'
+          )
+        } else {
+          setPreviewError(e?.message || 'Error generando previsualización')
+        }
       } finally {
         setPreviewLoading(false)
       }
