@@ -88,13 +88,29 @@ export interface Settings {
 export const projectsApi = {
   list: () => api.get<Project[]>('/projects'),
   get: (id: string) => api.get<Project>(`/projects/${id}`),
-  create: (name: string, file: File, documentType?: 'schematic' | 'manual') => {
+  create: (
+    name: string,
+    file: File,
+    documentType?: 'schematic' | 'manual',
+    rotation?: number
+  ) => {
     const formData = new FormData()
     formData.append('file', file)
     const docType = documentType || 'schematic'
-    return api.post<Project>(`/projects?name=${encodeURIComponent(name)}&document_type=${docType}`, formData)
+    const rot = typeof rotation === 'number' ? rotation : 0
+    return api.post<Project>(
+      `/projects?name=${encodeURIComponent(name)}&document_type=${docType}&rotation=${rot}`,
+      formData
+    )
   },
   delete: (id: string) => api.delete(`/projects/${id}`),
+  preview: (file: File, rotation = 0, dpi = 150) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<ArrayBuffer>(`/projects/preview?rotation=${rotation}&dpi=${dpi}`, formData, {
+      responseType: 'arraybuffer',
+    })
+  },
   getOcrFilters: (projectId: string) =>
     api.get<{ ocr_region_filters: OcrRegionFilter[] }>(`/projects/${projectId}/ocr-filters`),
   updateOcrFilters: (projectId: string, filters: OcrRegionFilter[]) =>

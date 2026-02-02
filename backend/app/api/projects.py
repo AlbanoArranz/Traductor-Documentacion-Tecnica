@@ -8,13 +8,42 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
+
+import fitz  # PyMuPDF
 
 from ..config import PROJECTS_DIR
 from ..db.models import Project, ProjectStatus, DocumentType
 from ..db.repository import projects_repo
 
 router = APIRouter()
+
+
+def _normalize_rotation(rotation: int) -> int:
+    if rotation % 90 != 0:
+        raise HTTPException(status_code=400, detail="rotation must be multiple of 90")
+    rotation = rotation % 360
+    if rotation not in (0, 90, 180, 270):
+        raise HTTPException(status_code=400, detail="rotation must be one of 0,90,180,270")
+    return rotation
+
+
+def _rotate_pdf_inplace(pdf_path: Path, rotation: int) -> None:
+    rotation = _normalize_rotation(rotation)
+    if rotation == 0:
+        return
+
+    tmp_path = pdf_path.with_suffix(".rotating.pdf")
+    doc = fitz.open(str(pdf_path))
+    try:
+        for page in doc:
+            page.set_rotation(rotation)
+        doc.save(str(tmp_path), garbage=4, deflate=True)
+    finally:
+        doc.close()
+
+    tmp_path.replace(pdf_path)
 
 
 class ProjectCreate(BaseModel):
@@ -38,6 +67,7 @@ async def create_project(
     name: str,
     file: UploadFile = File(...),
     document_type: str = Query(default="schematic"),
+    rotation: int = Query(default=0),
 ):
     """Crea un nuevo proyecto subiendo un PDF."""
     project_id = str(uuid.uuid4())
@@ -49,6 +79,15 @@ async def create_project(
     with open(pdf_path, "wb") as f:
         content = await file.read()
         f.write(content)
+
+    # Rotar PDF si aplica (persistente: el PDF rotado es el que se usará en el proyecto)
+    try:
+        _rotate_pdf_inplace(pdf_path, rotation)
+    except HTTPException:
+        # Re-raise para devolver 400
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not rotate PDF: {e}")
     
     # Contar páginas
     from ..services.render_service import count_pages
@@ -75,6 +114,37 @@ async def create_project(
         created_at=project.created_at.isoformat(),
         document_type=project.document_type.value,
     )
+
+
+@router.post("/preview")
+async def preview_pdf(
+    file: UploadFile = File(...),
+    rotation: int = Query(default=0),
+    dpi: int = Query(default=150),
+):
+    """Genera una previsualización PNG de la primera página aplicando rotación."""
+    rotation = _normalize_rotation(rotation)
+    if dpi <= 0 or dpi > 600:
+        raise HTTPException(status_code=400, detail="dpi must be between 1 and 600")
+
+    content = await file.read()
+    try:
+        doc = fitz.open(stream=content, filetype="pdf")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid PDF: {e}")
+
+    try:
+        if len(doc) == 0:
+            raise HTTPException(status_code=400, detail="PDF has no pages")
+        page = doc[0]
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, rotate=rotation)
+        png_bytes = pix.tobytes("png")
+    finally:
+        doc.close()
+
+    return Response(content=png_bytes, media_type="image/png")
 
 
 @router.get("", response_model=List[ProjectResponse])

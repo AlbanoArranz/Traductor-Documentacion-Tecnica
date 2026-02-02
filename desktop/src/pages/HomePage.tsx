@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, FolderOpen, Upload } from 'lucide-react'
@@ -12,6 +12,11 @@ export default function HomePage() {
   const [newProjectName, setNewProjectName] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [documentType, setDocumentType] = useState<'schematic' | 'manual'>('schematic')
+  const [pdfRotation, setPdfRotation] = useState(0)
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects'],
@@ -19,8 +24,8 @@ export default function HomePage() {
   })
 
   const createMutation = useMutation({
-    mutationFn: ({ name, file, docType }: { name: string; file: File; docType: 'schematic' | 'manual' }) =>
-      projectsApi.create(name, file, docType),
+    mutationFn: ({ name, file, docType, rotation }: { name: string; file: File; docType: 'schematic' | 'manual'; rotation: number }) =>
+      projectsApi.create(name, file, docType, rotation),
     onSuccess: (res) => {
       console.log('Project created:', res.data)
       queryClient.invalidateQueries({ queryKey: ['projects'] })
@@ -28,6 +33,8 @@ export default function HomePage() {
       setNewProjectName('')
       setSelectedFile(null)
       setDocumentType('schematic')
+      setPdfRotation(0)
+      setShowPreviewModal(false)
       navigate(`/project/${res.data.id}`)
     },
     onError: (error: any) => {
@@ -37,6 +44,33 @@ export default function HomePage() {
       alert(`Error al crear el proyecto: ${error?.response?.data?.detail || error?.message || 'Unknown error'}`)
     },
   })
+
+  useEffect(() => {
+    const refreshPreview = async () => {
+      if (!selectedFile || !showPreviewModal) return
+      setPreviewLoading(true)
+      setPreviewError(null)
+      try {
+        const res = await projectsApi.preview(selectedFile, pdfRotation, 150)
+        const blob = new Blob([res.data], { type: 'image/png' })
+        const url = URL.createObjectURL(blob)
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return url
+        })
+      } catch (e: any) {
+        console.error('Error generating PDF preview:', e)
+        setPreviewError(e?.response?.data?.detail || e?.message || 'Error generando previsualización')
+      } finally {
+        setPreviewLoading(false)
+      }
+    }
+
+    refreshPreview()
+    return () => {
+      // cleanup done in setter above
+    }
+  }, [selectedFile, pdfRotation, showPreviewModal])
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => projectsApi.delete(id),
@@ -49,6 +83,8 @@ export default function HomePage() {
     const file = e.target.files?.[0]
     if (file) {
       setSelectedFile(file)
+      setPdfRotation(0)
+      setShowPreviewModal(true)
       if (!newProjectName) {
         setNewProjectName(file.name.replace('.pdf', ''))
       }
@@ -59,7 +95,7 @@ export default function HomePage() {
     console.log('handleCreate called', { newProjectName, selectedFile, documentType })
     if (newProjectName && selectedFile) {
       console.log('Calling mutation...')
-      createMutation.mutate({ name: newProjectName, file: selectedFile, docType: documentType })
+      createMutation.mutate({ name: newProjectName, file: selectedFile, docType: documentType, rotation: pdfRotation })
     } else {
       console.log('Missing name or file')
     }
@@ -163,11 +199,92 @@ export default function HomePage() {
                     setIsCreating(false)
                     setNewProjectName('')
                     setSelectedFile(null)
+                    setPdfRotation(0)
+                    setShowPreviewModal(false)
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Cancelar
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isCreating && showPreviewModal && selectedFile && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-3xl bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b">
+                <div className="font-medium">Previsualización y rotación del PDF</div>
+                <button
+                  onClick={() => {
+                    setShowPreviewModal(false)
+                    setSelectedFile(null)
+                    setPdfRotation(0)
+                  }}
+                  className="px-2 py-1 text-sm border rounded hover:bg-gray-50"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="text-sm text-gray-600 truncate">{selectedFile.name}</div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPdfRotation((prev) => (prev + 270) % 360)}
+                      className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
+                      title="Rotar -90°"
+                    >
+                      ↺ -90°
+                    </button>
+                    <button
+                      onClick={() => setPdfRotation((prev) => (prev + 90) % 360)}
+                      className="px-3 py-1 text-sm border rounded hover:bg-gray-50"
+                      title="Rotar +90°"
+                    >
+                      ↻ +90°
+                    </button>
+                    <div className="text-sm font-medium w-16 text-center">{pdfRotation}°</div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-100 rounded border flex items-center justify-center min-h-[320px]">
+                  {previewLoading ? (
+                    <div className="text-sm text-gray-500">Generando previsualización...</div>
+                  ) : previewError ? (
+                    <div className="text-sm text-red-600 px-4">{previewError}</div>
+                  ) : previewUrl ? (
+                    <img src={previewUrl} className="max-w-full max-h-[70vh] shadow" alt="Previsualización PDF" />
+                  ) : (
+                    <div className="text-sm text-gray-500">Sin previsualización</div>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    onClick={() => {
+                      setShowPreviewModal(false)
+                      setSelectedFile(null)
+                      setPdfRotation(0)
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    disabled={createMutation.isPending}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowPreviewModal(false)
+                    }}
+                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                    disabled={createMutation.isPending}
+                    title="Confirmar rotación y volver al formulario"
+                  >
+                    Confirmar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
