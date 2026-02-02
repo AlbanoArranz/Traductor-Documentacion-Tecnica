@@ -35,6 +35,8 @@ export default function HomePage() {
       setDocumentType('schematic')
       setPdfRotation(0)
       setShowPreviewModal(false)
+      setPreviewUrl(null)
+      setPreviewError(null)
       navigate(`/project/${res.data.id}`)
     },
     onError: (error: any) => {
@@ -44,6 +46,12 @@ export default function HomePage() {
       alert(`Error al crear el proyecto: ${error?.response?.data?.detail || error?.message || 'Unknown error'}`)
     },
   })
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
 
   useEffect(() => {
     const refreshPreview = async () => {
@@ -67,9 +75,6 @@ export default function HomePage() {
     }
 
     refreshPreview()
-    return () => {
-      // cleanup done in setter above
-    }
   }, [selectedFile, pdfRotation, showPreviewModal])
 
   const deleteMutation = useMutation({
@@ -219,8 +224,6 @@ export default function HomePage() {
                 <button
                   onClick={() => {
                     setShowPreviewModal(false)
-                    setSelectedFile(null)
-                    setPdfRotation(0)
                   }}
                   className="px-2 py-1 text-sm border rounded hover:bg-gray-50"
                 >
@@ -268,6 +271,8 @@ export default function HomePage() {
                       setShowPreviewModal(false)
                       setSelectedFile(null)
                       setPdfRotation(0)
+                      setPreviewUrl(null)
+                      setPreviewError(null)
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                     disabled={createMutation.isPending}
