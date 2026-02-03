@@ -5,11 +5,13 @@ Modo default: PATCH (rectángulo de color de fondo + texto).
 
 from pathlib import Path
 from typing import List
+import base64
+import io
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from ..db.models import TextRegion
+from ..db.models import TextRegion, DrawingElement
 
 
 def _estimate_background_color(img: Image.Image, bbox: List[float], margin: int = 5) -> tuple:
@@ -257,6 +259,175 @@ def compose_page(
                 region.needs_review = True
         
         # TODO: Implementar modo "inpaint" si se necesita
+    
+    # Guardar imagen traducida
+    pages_dir = output_dir / "pages"
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    output_path = pages_dir / f"{page_number:03d}_translated_{dpi}.png"
+    img.save(output_path)
+    
+    # Thumbnail
+    thumbs_dir = output_dir / "thumbs"
+    thumbs_dir.mkdir(parents=True, exist_ok=True)
+    thumb_path = thumbs_dir / f"{page_number:03d}_translated.png"
+    thumb = img.copy()
+    thumb.thumbnail((300, 400))
+    thumb.save(thumb_path)
+    
+    return output_path
+
+
+def _draw_drawing_elements(img: Image.Image, draw: ImageDraw.ImageDraw, drawings: List[DrawingElement]):
+    """Dibuja los elementos de dibujo (líneas, rectángulos, texto, imágenes) sobre la imagen."""
+    for elem in drawings:
+        if elem.element_type == 'line':
+            if len(elem.points) >= 4:
+                x1, y1, x2, y2 = elem.points[:4]
+                draw.line(
+                    [(x1, y1), (x2, y2)],
+                    fill=elem.stroke_color,
+                    width=elem.stroke_width,
+                )
+        
+        elif elem.element_type == 'rect':
+            if len(elem.points) >= 4:
+                x1, y1, x2, y2 = elem.points[:4]
+                if elem.fill_color:
+                    draw.rectangle([(x1, y1), (x2, y2)], fill=elem.fill_color, outline=elem.stroke_color, width=elem.stroke_width)
+                else:
+                    draw.rectangle([(x1, y1), (x2, y2)], outline=elem.stroke_color, width=elem.stroke_width)
+        
+        elif elem.element_type == 'text':
+            if len(elem.points) >= 2 and elem.text:
+                x, y = elem.points[:2]
+                font = None
+                font_names = [f"{elem.font_family}.ttf", f"{elem.font_family.lower()}.ttf", "arial.ttf", "segoeui.ttf"]
+                for font_name in font_names:
+                    try:
+                        font = ImageFont.truetype(font_name, elem.font_size)
+                        break
+                    except:
+                        continue
+                if font is None:
+                    font = ImageFont.load_default()
+                draw.text((x, y), elem.text, fill=elem.text_color, font=font)
+        
+        elif elem.element_type == 'image':
+            if len(elem.points) >= 4 and elem.image_data:
+                x1, y1, x2, y2 = [int(v) for v in elem.points[:4]]
+                try:
+                    image_bytes = base64.b64decode(elem.image_data)
+                    stamp_img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+                    target_width = x2 - x1
+                    target_height = y2 - y1
+                    if target_width > 0 and target_height > 0:
+                        stamp_img = stamp_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+                        img.paste(stamp_img, (x1, y1), stamp_img)
+                except Exception as e:
+                    pass  # Ignorar errores de imagen
+
+
+def compose_page_with_drawings(
+    original_path: Path,
+    regions: List[TextRegion],
+    drawings: List[DrawingElement],
+    output_dir: Path,
+    page_number: int,
+    dpi: int,
+) -> Path:
+    """
+    Compone la página traducida dibujando texto ES y elementos de dibujo.
+    
+    Args:
+        original_path: Ruta a la imagen original
+        regions: Lista de TextRegion con traducciones
+        drawings: Lista de DrawingElement (líneas, rectángulos, texto, imágenes)
+        output_dir: Directorio del proyecto
+        page_number: Número de página
+        dpi: DPI de la imagen
+    
+    Returns:
+        Ruta a la imagen traducida
+    """
+    # Cargar imagen original
+    img = Image.open(original_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    
+    # Ordenar regiones por render_order (menor = se dibuja primero/debajo)
+    sorted_regions = sorted(regions, key=lambda r: getattr(r, 'render_order', 0))
+    
+    for region in sorted_regions:
+        # Usar texto traducido o original si no hay traducción
+        text = region.tgt_text or region.src_text
+        if not text:
+            continue
+        
+        x1, y1, x2, y2 = [int(v) for v in region.bbox]
+        bbox_width = x2 - x1
+        bbox_height = y2 - y1
+        
+        if region.compose_mode == "patch":
+            # Determinar color de fondo
+            bg_color = None
+            if getattr(region, 'bg_color', None):
+                hex_color = region.bg_color.lstrip('#')
+                bg_color = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            else:
+                bg_color = _estimate_background_color(img, region.bbox)
+            
+            # Determinar color de texto
+            text_color = (0, 0, 0)
+            if getattr(region, 'text_color', None):
+                hex_color = region.text_color.lstrip('#')
+                text_color = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            else:
+                text_color = _get_text_color(bg_color)
+            
+            # Dibujar rectángulo de fondo
+            padding = 2
+            draw.rectangle(
+                [x1 - padding, y1 - padding, x2 + padding, y2 + padding],
+                fill=bg_color,
+            )
+            
+            # Ajustar y dibujar texto
+            font, lines, overflow, final_size = _fit_text(
+                draw, text, bbox_width, bbox_height,
+                fixed_font_size=region.font_size,
+                font_family=getattr(region, 'font_family', 'Arial'),
+                text_align=getattr(region, 'text_align', 'center'),
+            )
+            
+            total_height = 0
+            line_heights = []
+            for line in lines:
+                bbox = draw.textbbox((0, 0), line, font=font)
+                h = bbox[3] - bbox[1]
+                line_heights.append(h)
+                total_height += h
+            
+            y_offset = y1 + (bbox_height - total_height) // 2
+            
+            for i, line in enumerate(lines):
+                bbox = draw.textbbox((0, 0), line, font=font)
+                line_width = bbox[2] - bbox[0]
+                
+                align = getattr(region, 'text_align', 'center')
+                if align == 'left':
+                    x_offset = x1 + padding
+                elif align == 'right':
+                    x_offset = x2 - line_width - padding
+                else:
+                    x_offset = x1 + (bbox_width - line_width) // 2
+                
+                draw.text((x_offset, y_offset), line, fill=text_color, font=font)
+                y_offset += line_heights[i]
+            
+            if overflow:
+                region.needs_review = True
+    
+    # Dibujar elementos de dibujo encima de las regiones de texto
+    _draw_drawing_elements(img, draw, drawings)
     
     # Guardar imagen traducida
     pages_dir = output_dir / "pages"

@@ -19,11 +19,15 @@ import {
   jobsApi,
   exportApi,
   settingsApi,
+  drawingsApi,
 } from '../lib/api'
-import type { TextRegion, OcrRegionFilter } from '../lib/api'
+import type { TextRegion, OcrRegionFilter, DrawingElement } from '../lib/api'
 import { EditableTextBox } from '../components/EditableTextBox'
 import { RegionPropertiesPanel } from '../components/RegionPropertiesPanel'
 import { HelpMenu } from '../components/HelpMenu'
+import { DrawingCanvas, type DrawingTool } from '../components/DrawingCanvas'
+import { DrawingToolbar } from '../components/DrawingToolbar'
+import { Pencil } from 'lucide-react'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -36,7 +40,6 @@ export default function ProjectPage() {
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobProgress, setJobProgress] = useState(0)
   const [jobStep, setJobStep] = useState('')
-  const [hoveredRegion, setHoveredRegion] = useState<string | null>(null)
   const imageViewerRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 })
@@ -51,7 +54,6 @@ export default function ProjectPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [confirmDeleteFiltered, setConfirmDeleteFiltered] = useState(false)
   const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{ current: number; total: number } | null>(null)
-  const [addGlossaryScope, setAddGlossaryScope] = useState<'global' | 'local'>('global')
   const [composeAllRunning, setComposeAllRunning] = useState(false)
   const [confirmComposeAll, setConfirmComposeAll] = useState(false)
   const [composeAllProgress, setComposeAllProgress] = useState<{ current: number; total: number } | null>(null)
@@ -66,6 +68,14 @@ export default function ProjectPage() {
   // Estado para filtros OCR del proyecto
   const [projectOcrFilters, setProjectOcrFilters] = useState<OcrRegionFilter[]>([])
   const [showOcrFiltersPanel, setShowOcrFiltersPanel] = useState(false)
+  
+  // Estado para herramientas de dibujo
+  const [drawingMode, setDrawingMode] = useState(false)
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>('select')
+  const [drawingStrokeColor, setDrawingStrokeColor] = useState('#000000')
+  const [drawingStrokeWidth, setDrawingStrokeWidth] = useState(2)
+  const [drawingFillColor, setDrawingFillColor] = useState<string | null>(null)
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null)
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -85,12 +95,40 @@ export default function ProjectPage() {
     enabled: !!projectId,
   })
 
+  // Query para elementos de dibujo de la página actual
+  const { data: drawings, refetch: refetchDrawings } = useQuery({
+    queryKey: ['drawings', projectId, selectedPage],
+    queryFn: () => drawingsApi.list(projectId!, selectedPage).then(res => res.data),
+    enabled: !!projectId,
+  })
+
+  // Mutations para elementos de dibujo
+  const createDrawingMutation = useMutation({
+    mutationFn: (data: Omit<DrawingElement, 'id' | 'project_id' | 'page_number' | 'created_at'>) =>
+      drawingsApi.create(projectId!, selectedPage, data),
+    onSuccess: () => {
+      refetchDrawings()
+    },
+  })
+
+  const deleteDrawingMutation = useMutation({
+    mutationFn: (drawingId: string) => drawingsApi.delete(projectId!, drawingId),
+    onSuccess: () => {
+      refetchDrawings()
+      setSelectedDrawingId(null)
+    },
+  })
+
   // Query para filtros OCR del proyecto
-  const { data: projectOcrFiltersData, refetch: refetchProjectOcrFilters } = useQuery({
+  const { data: projectOcrFiltersData } = useQuery({
     queryKey: ['project-ocr-filters', projectId],
     queryFn: () => projectsApi.getOcrFilters(projectId!).then(res => res.data),
     enabled: !!projectId,
   })
+
+  useEffect(() => {
+    setProjectOcrFilters(projectOcrFiltersData?.ocr_region_filters || [])
+  }, [projectOcrFiltersData?.ocr_region_filters])
 
   // Mutation para actualizar filtros OCR del proyecto
   const updateProjectOcrFiltersMutation = useMutation({
@@ -734,6 +772,22 @@ export default function ProjectPage() {
                 Ver: {showTranslated ? 'Traducida' : 'Original'}
               </button>
             )}
+            {/* Botón de modo dibujo */}
+            <button
+              onClick={() => {
+                setDrawingMode(!drawingMode)
+                if (!drawingMode) {
+                  setDrawingTool('select')
+                }
+              }}
+              className={`px-3 py-1 text-sm border rounded hover:bg-white ml-2 flex items-center gap-1 ${
+                drawingMode ? 'bg-primary-100 border-primary-500 text-primary-700' : ''
+              }`}
+              title="Herramientas de dibujo"
+            >
+              <Pencil size={14} />
+              Dibujar
+            </button>
             {/* Controles de Zoom */}
             <div className="flex items-center gap-1 ml-4 border rounded bg-white">
               <button
@@ -765,6 +819,23 @@ export default function ProjectPage() {
               </button>
             </div>
           </div>
+
+          {/* Toolbar de dibujo */}
+          {drawingMode && (
+            <div className="mb-2">
+              <DrawingToolbar
+                tool={drawingTool}
+                onToolChange={setDrawingTool}
+                strokeColor={drawingStrokeColor}
+                onStrokeColorChange={setDrawingStrokeColor}
+                strokeWidth={drawingStrokeWidth}
+                onStrokeWidthChange={setDrawingStrokeWidth}
+                fillColor={drawingFillColor}
+                onFillColorChange={setDrawingFillColor}
+                onClose={() => setDrawingMode(false)}
+              />
+            </div>
+          )}
 
           {imageUrl ? (
             <div className="relative inline-block">
@@ -868,7 +939,6 @@ export default function ProjectPage() {
                     <EditableTextBox
                       key={region.id}
                       region={region}
-                      imageSize={imageSize}
                       scale={imageScale}
                       isSelected={selectedRegionIds.has(region.id)}
                       index={index}
@@ -888,11 +958,26 @@ export default function ProjectPage() {
                           updates,
                         })
                       }
-                      onDelete={() => deleteRegionMutation.mutate(region.id)}
                       documentType={project?.document_type}
                     />
                   ))}
                 </div>
+              )}
+              {/* Canvas de dibujo */}
+              {drawingMode && imageSize.width > 0 && (
+                <DrawingCanvas
+                  imageSize={imageSize}
+                  scale={imageScale}
+                  tool={drawingTool}
+                  strokeColor={drawingStrokeColor}
+                  strokeWidth={drawingStrokeWidth}
+                  fillColor={drawingFillColor}
+                  drawings={drawings || []}
+                  selectedDrawingId={selectedDrawingId}
+                  onDrawingCreate={(data) => createDrawingMutation.mutate(data)}
+                  onDrawingSelect={setSelectedDrawingId}
+                  onDrawingDelete={(id) => deleteDrawingMutation.mutate(id)}
+                />
               )}
             </div>
           ) : (
@@ -927,7 +1012,7 @@ export default function ProjectPage() {
                     <select
                       value={f.mode}
                       onChange={(e) => {
-                        const next = [...(projectOcrFiltersData?.ocr_region_filters || [])]
+                        const next = [...projectOcrFilters]
                         next[idx] = { ...next[idx], mode: e.target.value as OcrRegionFilter['mode'] }
                         setProjectOcrFilters(next)
                       }}
@@ -942,7 +1027,7 @@ export default function ProjectPage() {
                       type="text"
                       value={f.pattern}
                       onChange={(e) => {
-                        const next = [...(projectOcrFiltersData?.ocr_region_filters || [])]
+                        const next = [...projectOcrFilters]
                         next[idx] = { ...next[idx], pattern: e.target.value }
                         setProjectOcrFilters(next)
                       }}
@@ -954,7 +1039,7 @@ export default function ProjectPage() {
                         type="checkbox"
                         checked={!!f.case_sensitive}
                         onChange={(e) => {
-                          const next = [...(projectOcrFiltersData?.ocr_region_filters || [])]
+                          const next = [...projectOcrFilters]
                           next[idx] = { ...next[idx], case_sensitive: e.target.checked }
                           setProjectOcrFilters(next)
                         }}
@@ -963,7 +1048,7 @@ export default function ProjectPage() {
                     </label>
                     <button
                       onClick={() => {
-                        const next = (projectOcrFiltersData?.ocr_region_filters || []).filter((_, i) => i !== idx)
+                        const next = projectOcrFilters.filter((_, i) => i !== idx)
                         setProjectOcrFilters(next)
                       }}
                       className="text-red-600 hover:bg-red-50 rounded"
@@ -975,7 +1060,7 @@ export default function ProjectPage() {
                 <div className="flex gap-2 pt-2">
                   <button
                     onClick={() => {
-                      const next = [...(projectOcrFiltersData?.ocr_region_filters || []), { mode: 'contains' as const, pattern: '', case_sensitive: false }]
+                      const next = [...projectOcrFilters, { mode: 'contains' as const, pattern: '', case_sensitive: false }]
                       setProjectOcrFilters(next)
                     }}
                     className="flex-1 px-2 py-1 text-xs border rounded hover:bg-gray-100"
@@ -983,7 +1068,7 @@ export default function ProjectPage() {
                     + Añadir filtro
                   </button>
                   <button
-                    onClick={() => updateProjectOcrFiltersMutation.mutate(projectOcrFiltersData?.ocr_region_filters || [])}
+                    onClick={() => updateProjectOcrFiltersMutation.mutate(projectOcrFilters)}
                     disabled={updateProjectOcrFiltersMutation.isPending}
                     className="px-3 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
                   >
@@ -1125,8 +1210,6 @@ export default function ProjectPage() {
                     setSelectedRegionIds(new Set([region.id]))
                   }
                 }}
-                onMouseEnter={() => setHoveredRegion(region.id)}
-                onMouseLeave={() => setHoveredRegion(null)}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">

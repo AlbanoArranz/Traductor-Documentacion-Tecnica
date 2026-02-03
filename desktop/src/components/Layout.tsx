@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Home, Settings, FileText } from 'lucide-react'
+import { Home, Settings } from 'lucide-react'
 
 export default function Layout() {
   const location = useLocation()

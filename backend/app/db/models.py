@@ -84,3 +84,22 @@ class Job:
     current_step: Optional[str] = None
     error: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class DrawingElement:
+    """Elemento de dibujo sobre un esquema (línea, rectángulo, texto, imagen)."""
+    id: str
+    project_id: str
+    page_number: int
+    element_type: str  # 'line', 'rect', 'text', 'image'
+    points: List[float]  # line/rect: [x1,y1,x2,y2], text: [x,y], image: [x1,y1,x2,y2]
+    stroke_color: str = "#000000"
+    stroke_width: int = 2
+    fill_color: Optional[str] = None
+    text: Optional[str] = None
+    font_size: int = 14
+    font_family: str = "Arial"
+    text_color: str = "#000000"
+    image_data: Optional[str] = None  # base64 PNG para type='image'
+    created_at: datetime = field(default_factory=datetime.now)

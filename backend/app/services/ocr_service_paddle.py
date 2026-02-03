@@ -28,7 +28,10 @@ def _get_ocr():
             raise RuntimeError(
                 "Missing dependency: paddleocr. Install backend requirements in your venv (pip install -r backend/requirements.txt)."
             ) from e
-        _ocr_reader = PaddleOCR(lang="ch", use_angle_cls=True, use_gpu=False, show_log=False)
+        _ocr_reader = PaddleOCR(
+            lang="ch",
+            use_angle_cls=True,
+        )
     return _ocr_reader
 
 
@@ -80,6 +83,7 @@ def _apply_filters(text: str, ocr_filters: list) -> bool:
 
 
 def _parse_paddle_result(result) -> list:
+    """Parse PaddleOCR 2.x result format to list of [bbox, (text, confidence)]."""
     if not result:
         return []
 

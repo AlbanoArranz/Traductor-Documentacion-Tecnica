@@ -15,7 +15,18 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import projects, pages, glossary, export, jobs, settings, global_glossary
+from .api import projects, pages, glossary, export, jobs, settings, global_glossary, drawings
+
+# Configuración CORS desde variables de entorno (para Docker/VPS)
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "")
+if ALLOWED_ORIGINS:
+    # Modo VPS/Docker: usar orígenes específicos
+    cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+    cors_regex = None
+else:
+    # Modo Desktop: permitir localhost loopback (seguro por defecto)
+    cors_origins = ["null"]
+    cors_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
 app = FastAPI(
     title="NB7X Translator API",
@@ -23,11 +34,11 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS: permitir cualquier localhost (seguridad loopback)
+# CORS middleware configurado según el entorno
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["null"],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origins=cors_origins,
+    allow_origin_regex=cors_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,6 +52,7 @@ app.include_router(global_glossary.router, prefix="/glossary/global", tags=["glo
 app.include_router(export.router, prefix="/projects/{project_id}/export", tags=["export"])
 app.include_router(jobs.router, prefix="/projects/{project_id}/jobs", tags=["jobs"])
 app.include_router(settings.router, prefix="/settings", tags=["settings"])
+app.include_router(drawings.router, prefix="/projects/{project_id}/pages", tags=["drawings"])
 
 
 @app.get("/health")
@@ -52,4 +64,5 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="127.0.0.1", port=port)
+    host = os.environ.get("HOST", "127.0.0.1")
+    uvicorn.run(app, host=host, port=port)

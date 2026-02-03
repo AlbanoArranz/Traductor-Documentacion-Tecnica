@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..config import PROJECTS_DIR, DEFAULT_DPI, get_ocr_mode
-from ..db.repository import projects_repo, pages_repo, text_regions_repo, glossary_repo, global_glossary_repo
+from ..db.repository import projects_repo, pages_repo, text_regions_repo, glossary_repo, global_glossary_repo, drawings_repo
 from ..services import render_service, ocr_provider, compose_service, translate_service
 
 router = APIRouter()
@@ -372,13 +372,27 @@ async def render_translated(
         if r.src_text in glossary_map:
             r.tgt_text = glossary_map[r.src_text]
     
-    output_path = compose_service.compose_page(
-        original_path,
-        regions,
-        project_dir,
-        page_number,
-        dpi,
-    )
+    # Obtener elementos de dibujo de esta página
+    drawings = drawings_repo.list_by_page(project_id, page_number)
+    
+    # Usar compose_page_with_drawings si hay dibujos, sino compose_page normal
+    if drawings:
+        output_path = compose_service.compose_page_with_drawings(
+            original_path,
+            regions,
+            drawings,
+            project_dir,
+            page_number,
+            dpi,
+        )
+    else:
+        output_path = compose_service.compose_page(
+            original_path,
+            regions,
+            project_dir,
+            page_number,
+            dpi,
+        )
     
     # Actualizar estado
     pages_repo.upsert(project_id, page_number, has_translated=True)

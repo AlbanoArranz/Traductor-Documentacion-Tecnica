@@ -198,3 +198,31 @@ export const settingsApi = {
   ) =>
     api.put('/settings', data),
 }
+
+export interface DrawingElement {
+  id: string
+  project_id: string
+  page_number: number
+  element_type: 'line' | 'rect' | 'text' | 'image'
+  points: number[]
+  stroke_color: string
+  stroke_width: number
+  fill_color: string | null
+  text: string | null
+  font_size: number
+  font_family: string
+  text_color: string
+  image_data: string | null
+  created_at: string
+}
+
+export const drawingsApi = {
+  list: (projectId: string, pageNumber: number) =>
+    api.get<DrawingElement[]>(`/projects/${projectId}/pages/${pageNumber}/drawings`),
+  create: (projectId: string, pageNumber: number, data: Omit<DrawingElement, 'id' | 'project_id' | 'page_number' | 'created_at'>) =>
+    api.post<DrawingElement>(`/projects/${projectId}/pages/${pageNumber}/drawings`, data),
+  update: (projectId: string, drawingId: string, data: Partial<Omit<DrawingElement, 'id' | 'project_id' | 'page_number' | 'created_at'>>) =>
+    api.patch<DrawingElement>(`/projects/${projectId}/pages/drawings/${drawingId}`, data),
+  delete: (projectId: string, drawingId: string) =>
+    api.delete(`/projects/${projectId}/pages/drawings/${drawingId}`),
+}

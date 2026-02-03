@@ -3,12 +3,10 @@ import type { TextRegion } from '../lib/api';
 
 interface EditableTextBoxProps {
   region: TextRegion;
-  imageSize: { width: number; height: number };
   isSelected: boolean;
   index?: number;
   onSelect: (e?: React.MouseEvent) => void;
   onUpdate: (updates: Partial<TextRegion>) => void;
-  onDelete: () => void;
   scale?: number;
   documentType?: 'schematic' | 'manual';
 }
@@ -17,12 +15,10 @@ const HANDLE_SIZE = 8;
 
 export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
   region,
-  imageSize,
   isSelected,
   index = 0,
   onSelect,
   onUpdate,
-  onDelete,
   scale = 1,
   documentType = 'schematic',
 }) => {

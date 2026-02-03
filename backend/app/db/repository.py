@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from ..config import PROJECTS_DIR, JOBS_DIR
-from .models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job, DocumentType
+from .models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job, DocumentType, DrawingElement
 from .global_glossary_repository import GlobalGlossaryRepository
 
 
@@ -292,9 +292,124 @@ class GlossaryRepository:
         self._save(project_id)
 
 
+class DrawingsRepository:
+    """Repositorio de elementos de dibujo."""
+    
+    def __init__(self):
+        self._cache: Dict[str, Dict[str, DrawingElement]] = {}
+    
+    def _get_project_drawings(self, project_id: str) -> Dict[str, DrawingElement]:
+        if project_id not in self._cache:
+            self._cache[project_id] = {}
+            drawings_file = PROJECTS_DIR / project_id / "drawings.json"
+            if drawings_file.exists():
+                with open(drawings_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for d in data:
+                        created_at = d.get("created_at")
+                        if isinstance(created_at, str):
+                            created_at = datetime.fromisoformat(created_at)
+                        else:
+                            created_at = datetime.now()
+                        self._cache[project_id][d["id"]] = DrawingElement(
+                            id=d["id"],
+                            project_id=d["project_id"],
+                            page_number=d["page_number"],
+                            element_type=d["element_type"],
+                            points=d["points"],
+                            stroke_color=d.get("stroke_color", "#000000"),
+                            stroke_width=d.get("stroke_width", 2),
+                            fill_color=d.get("fill_color"),
+                            text=d.get("text"),
+                            font_size=d.get("font_size", 14),
+                            font_family=d.get("font_family", "Arial"),
+                            text_color=d.get("text_color", "#000000"),
+                            image_data=d.get("image_data"),
+                            created_at=created_at,
+                        )
+        return self._cache[project_id]
+    
+    def _save(self, project_id: str):
+        drawings = self._get_project_drawings(project_id)
+        drawings_file = PROJECTS_DIR / project_id / "drawings.json"
+        with open(drawings_file, "w", encoding="utf-8") as f:
+            json.dump([
+                {
+                    "id": d.id,
+                    "project_id": d.project_id,
+                    "page_number": d.page_number,
+                    "element_type": d.element_type,
+                    "points": d.points,
+                    "stroke_color": d.stroke_color,
+                    "stroke_width": d.stroke_width,
+                    "fill_color": d.fill_color,
+                    "text": d.text,
+                    "font_size": d.font_size,
+                    "font_family": d.font_family,
+                    "text_color": d.text_color,
+                    "image_data": d.image_data,
+                    "created_at": d.created_at.isoformat(),
+                }
+                for d in drawings.values()
+            ], f, ensure_ascii=False, indent=2)
+    
+    def create(self, project_id: str, page_number: int, element_type: str, points: List[float], **kwargs) -> DrawingElement:
+        drawing_id = str(uuid.uuid4())
+        drawing = DrawingElement(
+            id=drawing_id,
+            project_id=project_id,
+            page_number=page_number,
+            element_type=element_type,
+            points=points,
+            stroke_color=kwargs.get("stroke_color", "#000000"),
+            stroke_width=kwargs.get("stroke_width", 2),
+            fill_color=kwargs.get("fill_color"),
+            text=kwargs.get("text"),
+            font_size=kwargs.get("font_size", 14),
+            font_family=kwargs.get("font_family", "Arial"),
+            text_color=kwargs.get("text_color", "#000000"),
+            image_data=kwargs.get("image_data"),
+        )
+        project_drawings = self._get_project_drawings(project_id)
+        project_drawings[drawing_id] = drawing
+        self._save(project_id)
+        return drawing
+    
+    def get(self, drawing_id: str, project_id: str) -> Optional[DrawingElement]:
+        project_drawings = self._get_project_drawings(project_id)
+        return project_drawings.get(drawing_id)
+    
+    def list_by_page(self, project_id: str, page_number: int) -> List[DrawingElement]:
+        drawings = self._get_project_drawings(project_id)
+        return [d for d in drawings.values() if d.page_number == page_number]
+    
+    def list_by_project(self, project_id: str) -> List[DrawingElement]:
+        return list(self._get_project_drawings(project_id).values())
+    
+    def update(self, drawing_id: str, project_id: str, **kwargs) -> Optional[DrawingElement]:
+        project_drawings = self._get_project_drawings(project_id)
+        if drawing_id not in project_drawings:
+            return None
+        drawing = project_drawings[drawing_id]
+        for key, value in kwargs.items():
+            if hasattr(drawing, key) and value is not None:
+                setattr(drawing, key, value)
+        self._save(project_id)
+        return drawing
+    
+    def delete(self, drawing_id: str, project_id: str) -> bool:
+        project_drawings = self._get_project_drawings(project_id)
+        if drawing_id in project_drawings:
+            del project_drawings[drawing_id]
+            self._save(project_id)
+            return True
+        return False
+
+
 # Instancias singleton
 projects_repo = ProjectsRepository()
 pages_repo = PagesRepository()
 text_regions_repo = TextRegionsRepository()
 glossary_repo = GlossaryRepository()
 global_glossary_repo = GlobalGlossaryRepository()
+drawings_repo = DrawingsRepository()
