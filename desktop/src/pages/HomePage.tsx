@@ -60,8 +60,7 @@ export default function HomePage() {
       setPreviewError(null)
       try {
         const res = await projectsApi.preview(selectedFile, pdfRotation, 150)
-        const blob = new Blob([res.data], { type: 'image/png' })
-        const url = URL.createObjectURL(blob)
+        const url = URL.createObjectURL(res.data)
         setPreviewUrl((prev) => {
           if (prev) URL.revokeObjectURL(prev)
           return url
@@ -87,6 +86,10 @@ export default function HomePage() {
     mutationFn: (id: string) => projectsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+    onError: (error: any) => {
+      console.error('Error deleting project:', error)
+      alert(`Error al eliminar el proyecto: ${error?.response?.data?.detail || error?.message || 'Unknown error'}`)
     },
   })
 
@@ -265,7 +268,12 @@ export default function HomePage() {
                   ) : previewError ? (
                     <div className="text-sm text-red-600 px-4">{previewError}</div>
                   ) : previewUrl ? (
-                    <img src={previewUrl} className="max-w-full max-h-[70vh] shadow" alt="Previsualización PDF" />
+                    <img
+                      src={previewUrl}
+                      className="max-w-full max-h-[70vh] shadow"
+                      alt="Previsualización PDF"
+                      onError={() => setPreviewError('No se pudo cargar la imagen de previsualización')}
+                    />
                   ) : (
                     <div className="text-sm text-gray-500">Sin previsualización</div>
                   )}

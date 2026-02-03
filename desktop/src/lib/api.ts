@@ -107,8 +107,8 @@ export const projectsApi = {
   preview: (file: File, rotation = 0, dpi = 150) => {
     const formData = new FormData()
     formData.append('file', file)
-    return api.post<ArrayBuffer>(`/projects/preview?rotation=${rotation}&dpi=${dpi}`, formData, {
-      responseType: 'arraybuffer',
+    return api.post<Blob>(`/projects/preview?rotation=${rotation}&dpi=${dpi}`, formData, {
+      responseType: 'blob',
     })
   },
   getOcrFilters: (projectId: string) =>
