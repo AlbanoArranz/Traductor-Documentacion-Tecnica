@@ -7,9 +7,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from ..config import PROJECTS_DIR, DEFAULT_DPI
+from ..config import PROJECTS_DIR, DEFAULT_DPI, get_ocr_mode
 from ..db.repository import projects_repo, pages_repo, text_regions_repo, glossary_repo, global_glossary_repo
-from ..services import render_service, ocr_service, compose_service, translate_service
+from ..services import render_service, ocr_provider, compose_service, translate_service
 
 router = APIRouter()
 
@@ -142,7 +142,7 @@ async def run_ocr(
     
     # Ejecutar OCR con filtros personalizados y tipo de documento
     try:
-        regions = ocr_service.detect_text(
+        regions = ocr_provider.detect_text(
             image_path, 
             dpi, 
             custom_filters=custom_filters if custom_filters else None,
@@ -174,7 +174,15 @@ async def run_ocr(
             translate_indexes.append(i)
 
         if texts_to_translate:
-            translations = translate_service.translate_batch(texts_to_translate)
+            if get_ocr_mode() == "advanced":
+                from ..services import translate_mixed_service
+
+                translations = translate_mixed_service.translate_batch_preserving_non_han(
+                    texts_to_translate,
+                    glossary_map,
+                )
+            else:
+                translations = translate_service.translate_batch(texts_to_translate)
             for idx, translation in zip(translate_indexes, translations):
                 regions[idx].tgt_text = translation
     

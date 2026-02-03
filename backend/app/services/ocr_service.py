@@ -9,7 +9,15 @@ from typing import List
 
 from PIL import Image
 
-from ..config import CJK_RATIO_THRESHOLD, get_min_han_ratio, get_ocr_region_filters
+from ..config import (
+    CJK_RATIO_THRESHOLD,
+    get_min_han_ratio,
+    get_ocr_region_filters,
+    get_min_ocr_confidence,
+    get_ocr_enable_label_recheck,
+    get_ocr_recheck_max_regions_per_page,
+    get_ocr_mode,
+)
 from ..db.models import TextRegion
 
 
@@ -152,6 +160,17 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None, documen
             confidence=confidence,
         )
         regions.append(region)
+
+    if get_ocr_mode() == "advanced" and regions:
+        from .ocr_postprocess import filter_regions_advanced
+
+        regions = filter_regions_advanced(
+            image_path=image_path,
+            regions=regions,
+            min_ocr_confidence=get_min_ocr_confidence(),
+            enable_label_recheck=get_ocr_enable_label_recheck(),
+            recheck_max_regions_per_page=get_ocr_recheck_max_regions_per_page(),
+        )
     
     # Para modo manual, agrupar líneas en párrafos
     if document_type == "manual" and len(regions) > 1:

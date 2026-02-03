@@ -3,8 +3,9 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import './index.css'
+import { setApiBaseUrl } from './lib/api'
 
-const queryClient = new QueryClient({
+const queryClient = new (QueryClient as any)({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
@@ -18,5 +19,17 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <App />
     </QueryClientProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
 )
+
+// Inicializar baseURL dinámico para producción (Electron) sin bloquear el render
+;(async () => {
+  try {
+    if (window.electronAPI?.getBackendUrl) {
+      const url = await window.electronAPI.getBackendUrl()
+      if (url) setApiBaseUrl(url)
+    }
+  } catch (e) {
+    console.error('Could not initialize backend URL from Electron:', e)
+  }
+})()

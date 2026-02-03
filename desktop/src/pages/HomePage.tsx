@@ -17,6 +17,7 @@ export default function HomePage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const [pendingDeleteProject, setPendingDeleteProject] = useState<{ id: string; name: string } | null>(null)
 
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects'],
@@ -86,6 +87,7 @@ export default function HomePage() {
     mutationFn: (id: string) => projectsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
+      setPendingDeleteProject(null)
     },
     onError: (error: any) => {
       console.error('Error deleting project:', error)
@@ -335,9 +337,7 @@ export default function HomePage() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    if (confirm('¿Eliminar este proyecto?')) {
-                      deleteMutation.mutate(project.id)
-                    }
+                    setPendingDeleteProject({ id: project.id, name: project.name })
                   }}
                   className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                 >
@@ -345,6 +345,47 @@ export default function HomePage() {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {pendingDeleteProject && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b">
+                <div className="font-medium">Eliminar proyecto</div>
+                <button
+                  onClick={() => setPendingDeleteProject(null)}
+                  className="px-2 py-1 text-sm border rounded hover:bg-gray-50"
+                  disabled={deleteMutation.isPending}
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="p-4">
+                <div className="text-sm text-gray-700">
+                  ¿Seguro que quieres eliminar el proyecto <span className="font-medium">{pendingDeleteProject.name}</span>?
+                </div>
+                <div className="text-xs text-gray-500 mt-2">Esta acción no se puede deshacer.</div>
+
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    onClick={() => setPendingDeleteProject(null)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    disabled={deleteMutation.isPending}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => deleteMutation.mutate(pendingDeleteProject.id)}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                    disabled={deleteMutation.isPending}
+                  >
+                    {deleteMutation.isPending ? 'Eliminando...' : 'Eliminar'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

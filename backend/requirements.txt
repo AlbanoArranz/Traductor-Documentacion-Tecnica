@@ -11,6 +11,10 @@ PyMuPDF>=1.23.0
 # OCR
 easyocr>=1.7.1
 
+# OCR (alternative)
+paddleocr
+paddlepaddle
+
 # Image processing
 Pillow>=10.0.0
 numpy>=1.24.0

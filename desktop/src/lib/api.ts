@@ -1,9 +1,14 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://127.0.0.1:8000'
+let apiBaseUrl = 'http://127.0.0.1:8000'
+
+export const setApiBaseUrl = (nextBaseUrl: string) => {
+  apiBaseUrl = nextBaseUrl.replace(/\/$/, '')
+  api.defaults.baseURL = apiBaseUrl
+}
 
 export const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: apiBaseUrl,
   timeout: 60000,
 })
 
@@ -82,6 +87,11 @@ export interface Settings {
   deepl_api_key: string | null
   default_dpi: number
   min_han_ratio: number
+  ocr_engine?: 'easyocr' | 'paddleocr'
+  ocr_mode?: 'basic' | 'advanced'
+  min_ocr_confidence?: number
+  ocr_enable_label_recheck?: boolean
+  ocr_recheck_max_regions_per_page?: number
   ocr_region_filters?: OcrRegionFilter[]
 }
 
@@ -134,9 +144,9 @@ export const pagesApi = {
   renderTranslated: (projectId: string, pageNumber: number, dpi = 450) =>
     api.post(`/projects/${projectId}/pages/${pageNumber}/render-translated?dpi=${dpi}`),
   getImageUrl: (projectId: string, pageNumber: number, kind: 'original' | 'translated', dpi = 450) =>
-    `${API_BASE_URL}/projects/${projectId}/pages/${pageNumber}/image?kind=${kind}&dpi=${dpi}`,
+    `${apiBaseUrl}/projects/${projectId}/pages/${pageNumber}/image?kind=${kind}&dpi=${dpi}`,
   getThumbnailUrl: (projectId: string, pageNumber: number, kind: 'original' | 'translated') =>
-    `${API_BASE_URL}/projects/${projectId}/pages/${pageNumber}/thumbnail?kind=${kind}`,
+    `${apiBaseUrl}/projects/${projectId}/pages/${pageNumber}/thumbnail?kind=${kind}`,
 }
 
 export const glossaryApi = {
@@ -162,7 +172,7 @@ export const exportApi = {
   generate: (projectId: string, dpi = 450) =>
     api.post(`/projects/${projectId}/export/pdf?dpi=${dpi}`),
   getDownloadUrl: (projectId: string, dpi = 450) =>
-    `${API_BASE_URL}/projects/${projectId}/export/pdf/file?dpi=${dpi}`,
+    `${apiBaseUrl}/projects/${projectId}/export/pdf/file?dpi=${dpi}`,
   downloadPdf: (projectId: string, dpi = 450) =>
     api.get(`/projects/${projectId}/export/pdf/file?dpi=${dpi}`, { responseType: 'blob' }),
 }
@@ -170,7 +180,19 @@ export const exportApi = {
 export const settingsApi = {
   get: () => api.get<Settings>('/settings'),
   update: (
-    data: Partial<Pick<Settings, 'default_dpi' | 'min_han_ratio' | 'ocr_region_filters'>> & {
+    data: Partial<
+      Pick<
+        Settings,
+        | 'default_dpi'
+        | 'min_han_ratio'
+        | 'ocr_engine'
+        | 'ocr_mode'
+        | 'min_ocr_confidence'
+        | 'ocr_enable_label_recheck'
+        | 'ocr_recheck_max_regions_per_page'
+        | 'ocr_region_filters'
+      >
+    > & {
       deepl_api_key?: string
     }
   ) =>

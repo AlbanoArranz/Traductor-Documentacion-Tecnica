@@ -9,6 +9,11 @@ export default function SettingsPage() {
   const [deeplApiKey, setDeeplApiKey] = useState('')
   const [defaultDpi, setDefaultDpi] = useState('450')
   const [minHanRatio, setMinHanRatio] = useState('100')
+  const [ocrEngine, setOcrEngine] = useState<'easyocr' | 'paddleocr'>('easyocr')
+  const [ocrMode, setOcrMode] = useState<'basic' | 'advanced'>('basic')
+  const [minOcrConfidence, setMinOcrConfidence] = useState('55')
+  const [enableLabelRecheck, setEnableLabelRecheck] = useState(true)
+  const [recheckMaxRegions, setRecheckMaxRegions] = useState('200')
   const [ocrFilters, setOcrFilters] = useState<OcrRegionFilter[]>([])
 
   const { data: settings } = useQuery({
@@ -20,6 +25,11 @@ export default function SettingsPage() {
     if (!settings) return
     setDefaultDpi(String(settings.default_dpi ?? 450))
     setMinHanRatio(String(Math.round(((settings.min_han_ratio ?? 1.0) * 100) as number)))
+    setOcrEngine((settings.ocr_engine as 'easyocr' | 'paddleocr') || 'easyocr')
+    setOcrMode((settings.ocr_mode as 'basic' | 'advanced') || 'basic')
+    setMinOcrConfidence(String(Math.round(((settings.min_ocr_confidence ?? 0.55) * 100) as number)))
+    setEnableLabelRecheck(Boolean(settings.ocr_enable_label_recheck ?? true))
+    setRecheckMaxRegions(String(settings.ocr_recheck_max_regions_per_page ?? 200))
     setOcrFilters((settings.ocr_region_filters as OcrRegionFilter[]) || [])
   }, [settings])
 
@@ -27,14 +37,28 @@ export default function SettingsPage() {
     mutationFn: async () => {
       const parsedMinHanRatio = Number(minHanRatio)
       const minHanRatioPct = Number.isFinite(parsedMinHanRatio) ? parsedMinHanRatio : 100
+      const parsedMinOcrConfidence = Number(minOcrConfidence)
+      const minOcrConfidencePct = Number.isFinite(parsedMinOcrConfidence) ? parsedMinOcrConfidence : 55
+      const parsedRecheckMaxRegions = Number(recheckMaxRegions)
+      const recheckMax = Number.isFinite(parsedRecheckMaxRegions) ? parsedRecheckMaxRegions : 200
       const payload: {
         deepl_api_key?: string
         default_dpi: number
         min_han_ratio: number
+        ocr_engine: 'easyocr' | 'paddleocr'
+        ocr_mode: 'basic' | 'advanced'
+        min_ocr_confidence: number
+        ocr_enable_label_recheck: boolean
+        ocr_recheck_max_regions_per_page: number
         ocr_region_filters: OcrRegionFilter[]
       } = {
         default_dpi: parseInt(defaultDpi) || 450,
         min_han_ratio: Math.max(0, Math.min(1, minHanRatioPct / 100)),
+        ocr_engine: ocrEngine,
+        ocr_mode: ocrMode,
+        min_ocr_confidence: Math.max(0, Math.min(1, minOcrConfidencePct / 100)),
+        ocr_enable_label_recheck: enableLabelRecheck,
+        ocr_recheck_max_regions_per_page: Math.max(0, Math.floor(recheckMax)),
         ocr_region_filters: ocrFilters,
       }
       if (deeplApiKey.trim()) {
@@ -177,6 +201,82 @@ export default function SettingsPage() {
             <h2 className="font-medium mb-4">OCR</h2>
             <div className="space-y-4">
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Modo OCR</label>
+                <select
+                  value={ocrMode}
+                  onChange={(e) => setOcrMode(e.target.value as 'basic' | 'advanced')}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="basic">Básico (por defecto)</option>
+                  <option value="advanced">Avanzado (reduce falsos positivos)</option>
+                </select>
+              </div>
+
+              <div className="border rounded-lg p-3 bg-gray-50">
+                <p className="text-sm font-medium text-gray-700 mb-2">Características</p>
+                <div className="overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-600">
+                        <th className="py-1 pr-2">Característica</th>
+                        <th className="py-1 pr-2">Básico</th>
+                        <th className="py-1">Avanzado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-gray-700">
+                      <tr>
+                        <td className="py-1 pr-2">Filtro % Han</td>
+                        <td className="py-1 pr-2">Sí</td>
+                        <td className="py-1">Sí</td>
+                      </tr>
+                      <tr>
+                        <td className="py-1 pr-2">Filtros OCR persistentes</td>
+                        <td className="py-1 pr-2">Sí</td>
+                        <td className="py-1">Sí</td>
+                      </tr>
+                      <tr>
+                        <td className="py-1 pr-2">Filtro por confianza mínima</td>
+                        <td className="py-1 pr-2">No</td>
+                        <td className="py-1">Sí</td>
+                      </tr>
+                      <tr>
+                        <td className="py-1 pr-2">Descartar alfanumérico puro</td>
+                        <td className="py-1 pr-2">No</td>
+                        <td className="py-1">Sí</td>
+                      </tr>
+                      <tr>
+                        <td className="py-1 pr-2">Recheck anti-etiquetas (EN) en sospechosos</td>
+                        <td className="py-1 pr-2">No</td>
+                        <td className="py-1">Sí</td>
+                      </tr>
+                      <tr>
+                        <td className="py-1 pr-2">Traducir solo chino y conservar AC/R1/…</td>
+                        <td className="py-1 pr-2">No</td>
+                        <td className="py-1">Sí</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Motor OCR
+                </label>
+                <select
+                  value={ocrEngine}
+                  onChange={(e) => setOcrEngine(e.target.value as 'easyocr' | 'paddleocr')}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="easyocr">EasyOCR (recomendado)</option>
+                  <option value="paddleocr">PaddleOCR</option>
+                </select>
+                <p className="mt-1 text-sm text-gray-500">
+                  Se aplicará a futuros OCR (no recalcula automáticamente).
+                </p>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   % mínimo de caracteres chinos (Han)
                 </label>
@@ -201,6 +301,64 @@ export default function SettingsPage() {
                   Evita detectar abreviaturas (BK, GN, PE, N7) como texto a traducir.
                 </p>
               </div>
+
+              {ocrMode === 'advanced' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Confianza mínima OCR
+                    </label>
+                    <select
+                      value={minOcrConfidence}
+                      onChange={(e) => setMinOcrConfidence(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="40">40%</option>
+                      <option value="50">50%</option>
+                      <option value="55">55% (recomendado)</option>
+                      <option value="60">60%</option>
+                      <option value="70">70%</option>
+                      <option value="80">80%</option>
+                    </select>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Descarta detecciones con baja confianza (reduce falsos positivos).
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={enableLabelRecheck}
+                        onChange={(e) => setEnableLabelRecheck(e.target.checked)}
+                      />
+                      Recheck anti-etiquetas (OCR EN en casos sospechosos)
+                    </label>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Más lento, pero reduce que números/siglas se interpreten como Han.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Máx. rechecks por página
+                    </label>
+                    <select
+                      value={recheckMaxRegions}
+                      onChange={(e) => setRecheckMaxRegions(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                      <option value="200">200 (recomendado)</option>
+                      <option value="400">400</option>
+                    </select>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Limita el coste en páginas con muchas cajas.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
