@@ -21,6 +21,14 @@ desktop/dist-electron/
 desktop/out/
 desktop/build/
 
+# Backend build artifacts (PyInstaller)
+backend/build/
+backend/dist/
+*.spec
+
+# Desktop resources (backend empaquetado, muy pesado)
+desktop/resources/backend/
+
 # Vite / misc caches
 .vite/
 

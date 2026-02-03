@@ -3,6 +3,14 @@ NB7X Translator - Backend FastAPI
 Traduce PDFs de imagen (esquemas eléctricos) de chino (ZH) a español (ES).
 """
 
+import sys
+import io
+
+if sys.stdout is not None and hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if sys.stderr is not None and hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
