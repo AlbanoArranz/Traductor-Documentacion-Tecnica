@@ -203,7 +203,7 @@ export interface DrawingElement {
   id: string
   project_id: string
   page_number: number
-  element_type: 'line' | 'rect' | 'text' | 'image'
+  element_type: 'line' | 'rect' | 'circle' | 'text' | 'image' | 'polyline'
   points: number[]
   stroke_color: string
   stroke_width: number

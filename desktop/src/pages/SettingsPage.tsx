@@ -246,7 +246,7 @@ export default function SettingsPage() {
                       </tr>
                       <tr>
                         <td className="py-1 pr-2">Recheck anti-etiquetas (EN) en sospechosos</td>
-                        <td className="py-1 pr-2">No</td>
+                        <td className="py-1 pr-2">Sí (opcional)</td>
                         <td className="py-1">Sí</td>
                       </tr>
                       <tr>
@@ -324,41 +324,41 @@ export default function SettingsPage() {
                       Descarta detecciones con baja confianza (reduce falsos positivos).
                     </p>
                   </div>
-
-                  <div>
-                    <label className="flex items-center gap-2 text-sm text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={enableLabelRecheck}
-                        onChange={(e) => setEnableLabelRecheck(e.target.checked)}
-                      />
-                      Recheck anti-etiquetas (OCR EN en casos sospechosos)
-                    </label>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Más lento, pero reduce que números/siglas se interpreten como Han.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Máx. rechecks por página
-                    </label>
-                    <select
-                      value={recheckMaxRegions}
-                      onChange={(e) => setRecheckMaxRegions(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                    >
-                      <option value="50">50</option>
-                      <option value="100">100</option>
-                      <option value="200">200 (recomendado)</option>
-                      <option value="400">400</option>
-                    </select>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Limita el coste en páginas con muchas cajas.
-                    </p>
-                  </div>
                 </div>
               )}
+
+              <div>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={enableLabelRecheck}
+                    onChange={(e) => setEnableLabelRecheck(e.target.checked)}
+                  />
+                  Recheck anti-etiquetas (OCR EN en casos sospechosos)
+                </label>
+                <p className="mt-1 text-sm text-gray-500">
+                  Más lento, pero reduce que números/siglas se interpreten como Han.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Máx. rechecks por página
+                </label>
+                <select
+                  value={recheckMaxRegions}
+                  onChange={(e) => setRecheckMaxRegions(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="200">200 (recomendado)</option>
+                  <option value="400">400</option>
+                </select>
+                <p className="mt-1 text-sm text-gray-500">
+                  Limita el coste en páginas con muchas cajas.
+                </p>
+              </div>
             </div>
           </div>
 

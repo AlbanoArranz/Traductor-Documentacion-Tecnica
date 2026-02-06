@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 class DrawingElementCreate(BaseModel):
-    element_type: str  # 'line', 'rect', 'text', 'image'
+    element_type: str  # 'line', 'rect', 'circle', 'text', 'image'
     points: List[float]
     stroke_color: Optional[str] = "#000000"
     stroke_width: Optional[int] = 2
@@ -90,8 +90,8 @@ async def create_drawing(project_id: str, page_number: int, data: DrawingElement
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    if data.element_type not in ('line', 'rect', 'text', 'image'):
-        raise HTTPException(status_code=400, detail="Invalid element_type")
+    if data.element_type not in ('line', 'rect', 'circle', 'text', 'image', 'polyline'):
+        raise HTTPException(status_code=400, detail=f"Tipo de elemento no válido: {data.element_type}")
     
     drawing = drawings_repo.create(
         project_id=project_id,

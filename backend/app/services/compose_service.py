@@ -277,25 +277,70 @@ def compose_page(
     return output_path
 
 
-def _draw_drawing_elements(img: Image.Image, draw: ImageDraw.ImageDraw, drawings: List[DrawingElement]):
-    """Dibuja los elementos de dibujo (líneas, rectángulos, texto, imágenes) sobre la imagen."""
+def _hex_to_rgb(color: str) -> tuple:
+    """Convierte color hex (#RRGGBB o #RGB) a tupla RGB."""
+    if not color:
+        return (0, 0, 0)
+    color = color.lstrip('#')
+    if len(color) == 3:
+        color = ''.join([c*2 for c in color])
+    if len(color) == 6:
+        return tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+    return (0, 0, 0)
+
+
+def _draw_drawing_elements(img: Image.Image, draw: ImageDraw.ImageDraw, drawings: List[DrawingElement], dpi: int = 450):
+    """Dibuja los elementos de dibujo (líneas, rectángulos, texto, imágenes) sobre la imagen.
+    
+    El grosor de línea se escala proporcionalmente al DPI para que coincida con la visualización
+    a zoom 100% en pantalla (96 DPI estándar).
+    """
+    # Factor de escala: DPI_render / DPI_pantalla_estándar
+    scale_factor = dpi / 96.0
+    
     for elem in drawings:
+        # Calcular grosor escalado
+        scaled_width = max(1, int(elem.stroke_width * scale_factor))
+        
+        # Convertir colores hex a RGB
+        stroke_color = _hex_to_rgb(elem.stroke_color) if elem.stroke_color else (0, 0, 0)
+        fill_color = _hex_to_rgb(elem.fill_color) if elem.fill_color else None
+        
         if elem.element_type == 'line':
             if len(elem.points) >= 4:
                 x1, y1, x2, y2 = elem.points[:4]
                 draw.line(
                     [(x1, y1), (x2, y2)],
-                    fill=elem.stroke_color,
-                    width=elem.stroke_width,
+                    fill=stroke_color,
+                    width=scaled_width,
                 )
+        
+        elif elem.element_type == 'polyline':
+            # Polilínea: array de puntos [x1,y1,x2,y2,x3,y3,...]
+            if len(elem.points) >= 4 and len(elem.points) % 2 == 0:
+                points = [(elem.points[i], elem.points[i+1]) for i in range(0, len(elem.points), 2)]
+                draw.line(points, fill=stroke_color, width=scaled_width)
         
         elif elem.element_type == 'rect':
             if len(elem.points) >= 4:
                 x1, y1, x2, y2 = elem.points[:4]
-                if elem.fill_color:
-                    draw.rectangle([(x1, y1), (x2, y2)], fill=elem.fill_color, outline=elem.stroke_color, width=elem.stroke_width)
+                if fill_color:
+                    draw.rectangle([(x1, y1), (x2, y2)], fill=fill_color, outline=stroke_color, width=scaled_width)
                 else:
-                    draw.rectangle([(x1, y1), (x2, y2)], outline=elem.stroke_color, width=elem.stroke_width)
+                    draw.rectangle([(x1, y1), (x2, y2)], outline=stroke_color, width=scaled_width)
+        
+        elif elem.element_type == 'circle':
+            if len(elem.points) >= 4:
+                x1, y1, x2, y2 = elem.points[:4]
+                cx = (x1 + x2) / 2
+                cy = (y1 + y2) / 2
+                rx = abs(x2 - x1) / 2
+                ry = abs(y2 - y1) / 2
+                bbox = [cx - rx, cy - ry, cx + rx, cy + ry]
+                if fill_color:
+                    draw.ellipse(bbox, fill=fill_color, outline=stroke_color, width=scaled_width)
+                else:
+                    draw.ellipse(bbox, outline=stroke_color, width=scaled_width)
         
         elif elem.element_type == 'text':
             if len(elem.points) >= 2 and elem.text:
@@ -427,7 +472,7 @@ def compose_page_with_drawings(
                 region.needs_review = True
     
     # Dibujar elementos de dibujo encima de las regiones de texto
-    _draw_drawing_elements(img, draw, drawings)
+    _draw_drawing_elements(img, draw, drawings, dpi)
     
     # Guardar imagen traducida
     pages_dir = output_dir / "pages"

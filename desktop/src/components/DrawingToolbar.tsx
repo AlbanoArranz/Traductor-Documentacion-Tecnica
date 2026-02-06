@@ -1,4 +1,4 @@
-import { MousePointer2, Minus, Square, Type, X } from 'lucide-react'
+import { MousePointer2, Minus, Square, Circle, Type, X, Route } from 'lucide-react'
 import type { DrawingTool } from './DrawingCanvas'
 
 interface DrawingToolbarProps {
@@ -27,8 +27,10 @@ export function DrawingToolbar({
   const tools: { id: DrawingTool; icon: React.ReactNode; label: string }[] = [
     { id: 'select', icon: <MousePointer2 size={18} />, label: 'Seleccionar' },
     { id: 'line', icon: <Minus size={18} />, label: 'Línea' },
+    { id: 'polyline', icon: <Route size={18} />, label: 'Polilínea' },
     { id: 'rect', icon: <Square size={18} />, label: 'Rectángulo' },
-    { id: 'text', icon: <Type size={18} />, label: 'Texto' },
+    { id: 'circle', icon: <Circle size={18} />, label: 'Círculo' },
+    { id: 'add_text_box', icon: <Type size={18} />, label: 'Añadir Caja' },
   ]
 
   const colors = ['#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFFFFF']

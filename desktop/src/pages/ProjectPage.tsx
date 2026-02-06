@@ -1,16 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  ArrowLeft,
-  Book,
-  Play,
-  Download,
-  Lock,
-  Unlock,
-  Trash2,
-  RefreshCw,
-} from 'lucide-react'
+import { ArrowLeft, Book, Play, Download, Lock, Unlock, Trash2, RefreshCw, Undo2, Redo2, Pencil } from 'lucide-react'
 import {
   projectsApi,
   pagesApi,
@@ -27,7 +18,8 @@ import { RegionPropertiesPanel } from '../components/RegionPropertiesPanel'
 import { HelpMenu } from '../components/HelpMenu'
 import { DrawingCanvas, type DrawingTool } from '../components/DrawingCanvas'
 import { DrawingToolbar } from '../components/DrawingToolbar'
-import { Pencil } from 'lucide-react'
+import { DrawingOverlay } from '../components/DrawingOverlay'
+import { useUndoRedo } from '../lib/undoRedo'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -75,7 +67,9 @@ export default function ProjectPage() {
   const [drawingStrokeColor, setDrawingStrokeColor] = useState('#000000')
   const [drawingStrokeWidth, setDrawingStrokeWidth] = useState(2)
   const [drawingFillColor, setDrawingFillColor] = useState<string | null>(null)
-  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null)
+  const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([])
+  // Estado para Undo/Redo
+  const { execute, undo, redo, canUndo, canRedo } = useUndoRedo()
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -113,9 +107,24 @@ export default function ProjectPage() {
 
   const deleteDrawingMutation = useMutation({
     mutationFn: (drawingId: string) => drawingsApi.delete(projectId!, drawingId),
+    onSuccess: async () => {
+      refetchDrawings()
+      setSelectedDrawingIds([])
+      // Re-renderizar para eliminar la silueta del canvas
+      try {
+        await pagesApi.renderTranslated(projectId!, selectedPage)
+        setImageTimestamp(Date.now())
+      } catch (e) {
+        console.error('Error re-rendering after delete:', e)
+      }
+    },
+  })
+
+  const updateDrawingMutation = useMutation({
+    mutationFn: ({ id, updates }: { id: string; updates: Partial<DrawingElement> }) =>
+      drawingsApi.update(projectId!, id, updates),
     onSuccess: () => {
       refetchDrawings()
-      setSelectedDrawingId(null)
     },
   })
 
@@ -541,7 +550,7 @@ export default function ProjectPage() {
       }
     }
 
-    // Prevenir zoom del navegador con Ctrl+wheel
+    // Prevenir zoom del navegador con Ctrl+wheel y atajos undo/redo
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '0')) {
         e.preventDefault()
@@ -552,6 +561,19 @@ export default function ProjectPage() {
         } else if (e.key === '0') {
           setZoomLevel(1)
         }
+      }
+      // Undo/Redo shortcuts
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          redo()
+        } else {
+          undo()
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault()
+        redo()
       }
     }
 
@@ -601,6 +623,24 @@ export default function ProjectPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 mr-2">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              className="p-2 text-sm border rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Deshacer (Ctrl+Z)"
+            >
+              <Undo2 size={16} />
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              className="p-2 text-sm border rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Rehacer (Ctrl+Y)"
+            >
+              <Redo2 size={16} />
+            </button>
+          </div>
           <Link
             to={`/project/${projectId}/glossary`}
             className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50"
@@ -820,9 +860,9 @@ export default function ProjectPage() {
             </div>
           </div>
 
-          {/* Toolbar de dibujo */}
+          {/* Toolbar de dibujo - fixed */}
           {drawingMode && (
-            <div className="mb-2">
+            <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50">
               <DrawingToolbar
                 tool={drawingTool}
                 onToolChange={setDrawingTool}
@@ -973,10 +1013,35 @@ export default function ProjectPage() {
                   strokeWidth={drawingStrokeWidth}
                   fillColor={drawingFillColor}
                   drawings={drawings || []}
-                  selectedDrawingId={selectedDrawingId}
+                  selectedDrawingIds={selectedDrawingIds}
                   onDrawingCreate={(data) => createDrawingMutation.mutate(data)}
-                  onDrawingSelect={setSelectedDrawingId}
+                  onDrawingSelect={setSelectedDrawingIds}
                   onDrawingDelete={(id) => deleteDrawingMutation.mutate(id)}
+                  onDrawingUpdate={(id, updates) => updateDrawingMutation.mutate({ id, updates })}
+                  onAddTextBox={(position) => {
+                    // Crear una región de texto en la posición clicada
+                    const defaultWidth = 150
+                    const defaultHeight = 30
+                    const bbox = [
+                      position.x,
+                      position.y,
+                      position.x + defaultWidth,
+                      position.y + defaultHeight
+                    ]
+                    pagesApi.createTextRegion(projectId!, selectedPage, {
+                      bbox,
+                      src_text: '',
+                      tgt_text: '',
+                    }).then(() => refetchRegions())
+                  }}
+                />
+              )}
+              {/* Overlay de solo-lectura para drawings cuando no estamos en modo dibujo */}
+              {!drawingMode && drawings && drawings.length > 0 && imageSize.width > 0 && (
+                <DrawingOverlay
+                  imageSize={imageSize}
+                  scale={imageScale}
+                  drawings={drawings}
                 />
               )}
             </div>

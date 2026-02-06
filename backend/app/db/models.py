@@ -92,7 +92,7 @@ class DrawingElement:
     id: str
     project_id: str
     page_number: int
-    element_type: str  # 'line', 'rect', 'text', 'image'
+    element_type: str  # 'line', 'rect', 'circle', 'text', 'image'
     points: List[float]  # line/rect: [x1,y1,x2,y2], text: [x,y], image: [x1,y1,x2,y2]
     stroke_color: str = "#000000"
     stroke_width: int = 2

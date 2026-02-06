@@ -171,6 +171,15 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None, documen
             enable_label_recheck=get_ocr_enable_label_recheck(),
             recheck_max_regions_per_page=get_ocr_recheck_max_regions_per_page(),
         )
+    elif get_ocr_enable_label_recheck() and regions:
+        # Modo básico con recheck activado
+        from .ocr_postprocess import recheck_suspicious_regions
+
+        regions = recheck_suspicious_regions(
+            image_path=image_path,
+            regions=regions,
+            recheck_max_regions_per_page=get_ocr_recheck_max_regions_per_page(),
+        )
     
     # Para modo manual, agrupar líneas en párrafos
     if document_type == "manual" and len(regions) > 1:

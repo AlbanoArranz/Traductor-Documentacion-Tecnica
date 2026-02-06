@@ -1,6 +1,7 @@
 {
   "name": "nb7x-translator",
   "version": "0.1.0",
+  "type": "module",
   "description": "Traductor de PDFs de imagen (esquemas eléctricos) de chino a español",
   "main": "electron/main.js",
   "scripts": {

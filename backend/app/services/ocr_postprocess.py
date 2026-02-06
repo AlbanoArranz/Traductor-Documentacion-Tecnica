@@ -43,6 +43,66 @@ def _looks_like_label_en(text: str) -> bool:
     return is_pure_label_like(text)
 
 
+def recheck_suspicious_regions(
+    image_path: Path,
+    regions: List[TextRegion],
+    recheck_max_regions_per_page: int,
+) -> List[TextRegion]:
+    """
+    Aplica recheck OCR EN en regiones sospechosas (cajas pequeñas con texto corto).
+    Filtra regiones que el OCR EN identifica como etiquetas alfanuméricas.
+    """
+    out: List[TextRegion] = []
+    suspicious: List[TextRegion] = []
+
+    for r in regions:
+        # Gate sospechoso: cajas pequeñas o texto muy corto
+        x1, y1, x2, y2 = r.bbox
+        w = max(0.0, x2 - x1)
+        h = max(0.0, y2 - y1)
+        area = w * h
+
+        is_short = len((r.src_text or "").strip()) <= 4
+        is_tiny = area <= 20 * 20 or (h <= 18 and w <= 60)
+
+        if is_short and is_tiny:
+            suspicious.append(r)
+        else:
+            out.append(r)
+
+    if not suspicious:
+        return out
+
+    reader = _get_easyocr_en_reader()
+    checked = 0
+
+    for r in suspicious:
+        if checked >= int(recheck_max_regions_per_page):
+            out.append(r)
+            continue
+
+        try:
+            crop_np = _crop_np(image_path, r.bbox)
+            res = reader.readtext(crop_np)
+            if res:
+                # res: [(bbox, text, conf), ...]
+                best = max(res, key=lambda it: float(it[2] if len(it) > 2 else 0.0))
+                en_text = normalize_ocr_text(best[1])
+                en_conf = float(best[2] if len(best) > 2 else 0.0)
+
+                # Si EN ve claramente una etiqueta alfanumérica, descartamos esta región.
+                if en_conf >= 0.6 and _looks_like_label_en(en_text) and not has_han(en_text):
+                    checked += 1
+                    continue
+        except Exception as e:
+            logger.debug("OCR recheck failed: %s", e)
+
+        checked += 1
+        out.append(r)
+
+    return out
+
+
 def filter_regions_advanced(
     image_path: Path,
     regions: List[TextRegion],
