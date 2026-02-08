@@ -18,7 +18,6 @@ import { RegionPropertiesPanel } from '../components/RegionPropertiesPanel'
 import { HelpMenu } from '../components/HelpMenu'
 import { DrawingCanvas, type DrawingTool } from '../components/DrawingCanvas'
 import { DrawingToolbar } from '../components/DrawingToolbar'
-import { DrawingOverlay } from '../components/DrawingOverlay'
 import { useUndoRedo } from '../lib/undoRedo'
 
 export default function ProjectPage() {
@@ -1034,14 +1033,6 @@ export default function ProjectPage() {
                       tgt_text: '',
                     }).then(() => refetchRegions())
                   }}
-                />
-              )}
-              {/* Overlay de solo-lectura para drawings cuando no estamos en modo dibujo */}
-              {!drawingMode && drawings && drawings.length > 0 && imageSize.width > 0 && (
-                <DrawingOverlay
-                  imageSize={imageSize}
-                  scale={imageScale}
-                  drawings={drawings}
                 />
               )}
             </div>

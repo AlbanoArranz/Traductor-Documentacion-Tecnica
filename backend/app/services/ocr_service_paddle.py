@@ -15,6 +15,7 @@ from ..config import (
     get_ocr_mode,
 )
 from ..db.models import TextRegion
+from .text_script_utils import is_pure_label_like, normalize_ocr_text
 
 _ocr_reader = None
 
@@ -127,10 +128,23 @@ def detect_text(
         if _apply_filters(text, ocr_filters):
             continue
 
+        # Normalizar texto OCR
+        text = normalize_ocr_text(text)
+        if not text:
+            continue
+
         if _han_ratio(text) < CJK_RATIO_THRESHOLD:
             continue
 
         if _han_ratio(text) < min_han_ratio:
+            continue
+        
+        # Descartar etiquetas alfanuméricas puras (siglas, números, códigos)
+        if is_pure_label_like(text):
+            continue
+        
+        # Filtro de confianza (también en modo basic)
+        if confidence < get_min_ocr_confidence():
             continue
 
         try:

@@ -19,6 +19,7 @@ from ..config import (
     get_ocr_mode,
 )
 from ..db.models import TextRegion
+from .text_script_utils import is_pure_label_like, normalize_ocr_text
 
 
 # Lazy load de EasyOCR para evitar importación lenta al inicio
@@ -124,12 +125,25 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None, documen
         if filtered_out:
             continue
         
+        # Normalizar texto OCR
+        text = normalize_ocr_text(text)
+        if not text:
+            continue
+        
         # Filtrar: primero descartar si casi no hay Han (ruido)
         if _han_ratio(text) < CJK_RATIO_THRESHOLD:
             continue
 
         # Filtro estricto configurable: porcentaje mínimo de Han
         if _han_ratio(text) < min_han_ratio:
+            continue
+        
+        # Descartar etiquetas alfanuméricas puras (siglas, números, códigos)
+        if is_pure_label_like(text):
+            continue
+        
+        # Filtro de confianza (también en modo basic)
+        if confidence < get_min_ocr_confidence():
             continue
         
         # Convertir bbox de 4 puntos a [x1, y1, x2, y2]

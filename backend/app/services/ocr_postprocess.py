@@ -56,16 +56,10 @@ def recheck_suspicious_regions(
     suspicious: List[TextRegion] = []
 
     for r in regions:
-        # Gate sospechoso: cajas pequeñas o texto muy corto
-        x1, y1, x2, y2 = r.bbox
-        w = max(0.0, x2 - x1)
-        h = max(0.0, y2 - y1)
-        area = w * h
+        # Gate sospechoso: texto corto (≤6 chars) independiente del tamaño de caja
+        is_short = len((r.src_text or "").strip()) <= 6
 
-        is_short = len((r.src_text or "").strip()) <= 4
-        is_tiny = area <= 20 * 20 or (h <= 18 and w <= 60)
-
-        if is_short and is_tiny:
+        if is_short:
             suspicious.append(r)
         else:
             out.append(r)
@@ -91,7 +85,7 @@ def recheck_suspicious_regions(
                 en_conf = float(best[2] if len(best) > 2 else 0.0)
 
                 # Si EN ve claramente una etiqueta alfanumérica, descartamos esta región.
-                if en_conf >= 0.6 and _looks_like_label_en(en_text) and not has_han(en_text):
+                if en_conf >= 0.5 and _looks_like_label_en(en_text) and not has_han(en_text):
                     checked += 1
                     continue
         except Exception as e:
@@ -123,16 +117,10 @@ def filter_regions_advanced(
         if is_pure_label_like(r.src_text):
             continue
 
-        # Gate sospechoso: cajas pequeñas o texto muy corto
-        x1, y1, x2, y2 = r.bbox
-        w = max(0.0, x2 - x1)
-        h = max(0.0, y2 - y1)
-        area = w * h
+        # Gate sospechoso: texto corto (≤6 chars) independiente del tamaño de caja
+        is_short = len((r.src_text or "").strip()) <= 6
 
-        is_short = len((r.src_text or "").strip()) <= 4
-        is_tiny = area <= 20 * 20 or (h <= 18 and w <= 60)
-
-        if enable_label_recheck and is_short and is_tiny:
+        if enable_label_recheck and is_short:
             suspicious.append(r)
         else:
             out.append(r)

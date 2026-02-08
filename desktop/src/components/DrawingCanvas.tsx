@@ -48,13 +48,6 @@ export function DrawingCanvas({
   const [textInput, setTextInput] = useState('')
   const [textPosition, setTextPosition] = useState<{ x: number; y: number } | null>(null)
   const [polylinePoints, setPolylinePoints] = useState<{ x: number; y: number }[]>([])
-  const polylinePointsRef = useRef(polylinePoints)
-  
-  // Actualizar ref siempre que cambie polylinePoints
-  useEffect(() => {
-    polylinePointsRef.current = polylinePoints
-  }, [polylinePoints])
-  
   const [lastClickTime, setLastClickTime] = useState<number | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -68,23 +61,25 @@ export function DrawingCanvas({
   }
 
   const finishPolyline = useCallback(() => {
-    const currentPoints = polylinePointsRef.current
-    if (currentPoints.length >= 2) {
-      const points = currentPoints.flatMap(p => [p.x, p.y])
-      onDrawingCreate({
-        element_type: 'polyline',
-        points,
-        stroke_color: strokeColor,
-        stroke_width: strokeWidth,
-        fill_color: null,
-        text: null,
-        font_size: 14,
-        font_family: 'Arial',
-        text_color: '#000000',
-        image_data: null,
-      })
-      setPolylinePoints([])
-    }
+    setPolylinePoints(currentPoints => {
+      if (currentPoints.length >= 2) {
+        const points = currentPoints.flatMap(p => [p.x, p.y])
+        onDrawingCreate({
+          element_type: 'polyline',
+          points,
+          stroke_color: strokeColor,
+          stroke_width: strokeWidth,
+          fill_color: null,
+          text: null,
+          font_size: 14,
+          font_family: 'Arial',
+          text_color: '#000000',
+          image_data: null,
+        })
+        return []
+      }
+      return currentPoints
+    })
   }, [onDrawingCreate, strokeColor, strokeWidth])
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -111,8 +106,7 @@ export function DrawingCanvas({
     if (tool === 'polyline') {
       // Detectar doble-click (300ms desde el último click)
       const now = Date.now()
-      const currentPoints = polylinePointsRef.current
-      if (currentPoints.length >= 2 && now - (lastClickTime || 0) < 300) {
+      if (polylinePoints.length >= 2 && now - (lastClickTime || 0) < 300) {
         // Doble-click: finalizar polilínea
         finishPolyline()
         setLastClickTime(null)
@@ -120,12 +114,12 @@ export function DrawingCanvas({
       }
       setLastClickTime(now)
       
-      if (currentPoints.length === 0) {
+      if (polylinePoints.length === 0) {
         // Primer punto
         setPolylinePoints([point])
       } else {
         // Añadir punto con snap a ejes si Shift está presionado
-        const lastPoint = currentPoints[currentPoints.length - 1]
+        const lastPoint = polylinePoints[polylinePoints.length - 1]
         let newPoint = point
         
         if (e.shiftKey) {
@@ -141,7 +135,7 @@ export function DrawingCanvas({
           }
         }
         
-        setPolylinePoints([...currentPoints, newPoint])
+        setPolylinePoints([...polylinePoints, newPoint])
       }
       return
     }
@@ -387,15 +381,6 @@ export function DrawingCanvas({
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
   }, [selectedDrawingIds, onDrawingDelete, onDrawingSelect])
-
-  // Cambiar grosor de elementos seleccionados cuando cambia strokeWidth
-  useEffect(() => {
-    if (selectedDrawingIds.length > 0 && onDrawingUpdate && tool === 'select') {
-      selectedDrawingIds.forEach(id => {
-        onDrawingUpdate(id, { stroke_width: strokeWidth })
-      })
-    }
-  }, [strokeWidth, tool, selectedDrawingIds, onDrawingUpdate])
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
