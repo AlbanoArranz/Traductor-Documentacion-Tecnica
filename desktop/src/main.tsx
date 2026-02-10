@@ -22,14 +22,20 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>
 )
 
-// Inicializar baseURL dinámico para producción (Electron) sin bloquear el render
+// Inicializar baseURL dinámico para producción (Electron o Web)
 ;(async () => {
   try {
-    if (window.electronAPI?.getBackendUrl) {
+    const webApiUrl = import.meta.env.VITE_API_URL
+    
+    if (webApiUrl) {
+      // Modo Web: usar URL desde variable de entorno
+      setApiBaseUrl(webApiUrl)
+    } else if (window.electronAPI?.getBackendUrl) {
+      // Modo Desktop (Electron): usar API de Electron
       const url = await window.electronAPI.getBackendUrl()
       if (url) setApiBaseUrl(url)
     }
   } catch (e) {
-    console.error('Could not initialize backend URL from Electron:', e)
+    console.error('Could not initialize backend URL:', e)
   }
 })()

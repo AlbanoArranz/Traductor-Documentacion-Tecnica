@@ -13,29 +13,40 @@
     "build:win": "vite build && electron-builder --win",
     "build:backend": "node scripts/build-backend.js",
     "lint": "eslint src --ext .ts,.tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
+    "@tanstack/react-query": "^5.8.0",
     "axios": "^1.6.0",
     "lucide-react": "^0.292.0",
-    "@tanstack/react-query": "^5.8.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@vitejs/plugin-react": "^4.2.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/ui": "^4.0.18",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
     "electron": "^27.1.0",
     "electron-builder": "^24.9.1",
     "eslint": "^8.54.0",
+    "jsdom": "^28.0.0",
+    "msw": "^2.12.9",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.5",
     "typescript": "^5.2.2",
     "vite": "^5.0.0",
+    "vitest": "^4.0.18",
     "wait-on": "^7.2.0"
   },
   "build": {
