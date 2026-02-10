@@ -32,6 +32,14 @@ desktop/resources/backend/
 # Vite / misc caches
 .vite/
 
+# Test coverage
+coverage/
+desktop/coverage/
+**/coverage/
+lcov-report/
+**/lcov-report/
+coverage-final.json
+
 # Logs
 *.log
 backend/app.log
