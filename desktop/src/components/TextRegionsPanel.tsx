@@ -33,17 +33,17 @@ interface TextRegionsPanelProps {
 }
 
 export function TextRegionsPanel({
-  projectId,
-  selectedPage,
+  projectId: _projectId,
+  selectedPage: _selectedPage,
   regions,
   selectedRegionIds,
   onRegionSelect,
   onRegionUpdate,
   onRegionDelete,
   onBulkDelete,
-  projectOcrFilters,
-  onProjectOcrFiltersChange,
-  onSaveProjectOcrFilters,
+  projectOcrFilters: _projectOcrFilters,
+  onProjectOcrFiltersChange: _onProjectOcrFiltersChange,
+  onSaveProjectOcrFilters: _onSaveProjectOcrFilters,
   regionFilterText,
   onRegionFilterTextChange,
   regionFilterMode,
@@ -69,7 +69,7 @@ export function TextRegionsPanel({
       {/* OCR filters section - simplified for now */}
       <div className="p-4 border-b bg-gray-50">
         <h2 className="font-medium text-sm">Filtros OCR de este proyecto</h2>
-        <p className="text-xs text-gray-500 mt-1">{projectOcrFilters.length} filtros definidos</p>
+        <p className="text-xs text-gray-500 mt-1">{_projectOcrFilters.length} filtros definidos</p>
       </div>
 
       <div className="p-4 border-b">

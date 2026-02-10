@@ -56,8 +56,8 @@ const MIN_ZOOM = 0.25
 const MAX_ZOOM = 4
 
 export function ImageViewer({
-  projectId,
-  selectedPage,
+  projectId: _projectId,
+  selectedPage: _selectedPage,
   imageUrl,
   imageSize,
   imageScale,
@@ -105,7 +105,7 @@ export function ImageViewer({
   const [dragStart, setDragStart] = useState<{x: number, y: number} | null>(null)
 
   const handleImageLoad = () => {
-    if (imageRef.current && onImageLoad) {
+    if (imageRef?.current && onImageLoad) {
       const naturalWidth = imageRef.current.naturalWidth
       const naturalHeight = imageRef.current.naturalHeight
       imageSize.width = naturalWidth
@@ -226,7 +226,7 @@ export function ImageViewer({
           <img
             ref={imageRef}
             src={imageUrl}
-            alt={`Página ${selectedPage + 1}`}
+            alt={`Página ${_selectedPage + 1}`}
             className="shadow-lg block"
             style={{
               maxWidth: 'none',
