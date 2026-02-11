@@ -91,14 +91,14 @@ export default function ProjectPage() {
     enabled: !!projectId,
   })
 
-  const { data: regions, refetch: refetchRegions } = useQuery({
+  const { data: regions } = useQuery({
     queryKey: ['regions', projectId, selectedPage],
     queryFn: () => pagesApi.getTextRegions(projectId!, selectedPage).then(res => res.data),
     enabled: !!projectId,
   })
 
   // Query para elementos de dibujo de la página actual
-  const { data: drawings, refetch: refetchDrawings } = useQuery({
+  const { data: drawings } = useQuery({
     queryKey: ['drawings', projectId, selectedPage],
     queryFn: () => drawingsApi.list(projectId!, selectedPage).then(res => res.data),
     enabled: !!projectId,
@@ -108,24 +108,54 @@ export default function ProjectPage() {
   const createDrawingMutation = useMutation({
     mutationFn: (data: Omit<DrawingElement, 'id' | 'project_id' | 'page_number' | 'created_at'>) =>
       drawingsApi.create(projectId!, selectedPage, data),
-    onSuccess: () => {
-      refetchDrawings()
+    onSuccess: (res) => {
+      const created = res.data as DrawingElement
+      queryClient.setQueryData<DrawingElement[]>(['drawings', projectId, selectedPage], (old) => {
+        const next = old ? [...old] : []
+        next.push(created)
+        return next
+      })
     },
   })
 
   const deleteDrawingMutation = useMutation({
     mutationFn: (drawingId: string) => drawingsApi.delete(projectId!, drawingId),
-    onSuccess: () => {
-      refetchDrawings()
-      setSelectedDrawingIds([])
+    onSuccess: (_res, drawingId) => {
+      queryClient.setQueryData<DrawingElement[]>(['drawings', projectId, selectedPage], (old) => {
+        if (!old) return old
+        return old.filter((d) => d.id !== drawingId)
+      })
+      setSelectedDrawingIds((prev) => prev.filter((id) => id !== drawingId))
     },
   })
 
   const updateDrawingMutation = useMutation({
     mutationFn: ({ id, updates }: { id: string; updates: Partial<DrawingElement> }) =>
       drawingsApi.update(projectId!, id, updates),
-    onSuccess: () => {
-      refetchDrawings()
+    onMutate: async ({ id, updates }) => {
+      await queryClient.cancelQueries({ queryKey: ['drawings', projectId, selectedPage] })
+      const previous = queryClient.getQueryData<DrawingElement[]>(['drawings', projectId, selectedPage])
+
+      queryClient.setQueryData<DrawingElement[]>(['drawings', projectId, selectedPage], (old) => {
+        if (!old) return old
+        return old.map((d) => (d.id === id ? { ...d, ...updates } : d))
+      })
+
+      return { previous }
+    },
+    onError: (err, _vars, ctx) => {
+      console.error('Error updating drawing:', err)
+      if (ctx?.previous) {
+        queryClient.setQueryData(['drawings', projectId, selectedPage], ctx.previous)
+      }
+    },
+    onSuccess: (res) => {
+      // Reconciliar con respuesta del servidor (autoridad)
+      const server = res.data as DrawingElement
+      queryClient.setQueryData<DrawingElement[]>(['drawings', projectId, selectedPage], (old) => {
+        if (!old) return old
+        return old.map((d) => (d.id === server.id ? server : d))
+      })
     },
   })
 
@@ -165,7 +195,7 @@ export default function ProjectPage() {
   const ocrMutation = useMutation({
     mutationFn: () => pagesApi.runOcr(projectId!, selectedPage),
     onSuccess: () => {
-      refetchRegions()
+      queryClient.invalidateQueries({ queryKey: ['regions', projectId, selectedPage] })
     },
   })
 
@@ -180,12 +210,31 @@ export default function ProjectPage() {
   const updateRegionMutation = useMutation({
     mutationFn: (data: { regionId: string; updates: Partial<TextRegion> }) =>
       pagesApi.updateTextRegion(projectId!, data.regionId, data.updates),
-    onSuccess: () => {
-      refetchRegions()
+    onMutate: async ({ regionId, updates }) => {
+      await queryClient.cancelQueries({ queryKey: ['regions', projectId, selectedPage] })
+      const previous = queryClient.getQueryData<TextRegion[]>(['regions', projectId, selectedPage])
+
+      queryClient.setQueryData<TextRegion[]>(['regions', projectId, selectedPage], (old) => {
+        if (!old) return old
+        return old.map((r) => (r.id === regionId ? { ...r, ...updates } : r))
+      })
+
+      return { previous }
     },
-    onError: (err) => {
+    onError: (err, _vars, ctx) => {
       console.error('Error updating region:', err)
+      if (ctx?.previous) {
+        queryClient.setQueryData(['regions', projectId, selectedPage], ctx.previous)
+      }
       alert('Error al actualizar la región')
+    },
+    onSuccess: (res) => {
+      // Reconciliar con respuesta del servidor (autoridad)
+      const server = res.data as TextRegion
+      queryClient.setQueryData<TextRegion[]>(['regions', projectId, selectedPage], (old) => {
+        if (!old) return old
+        return old.map((r) => (r.id === server.id ? server : r))
+      })
     },
   })
 
@@ -194,10 +243,17 @@ export default function ProjectPage() {
       console.log('Deleting region:', regionId)
       await pagesApi.deleteTextRegion(projectId!, regionId)
     },
-    onSuccess: () => {
+    onSuccess: (_res, regionId) => {
       console.log('Region deleted successfully')
-      refetchRegions()
-      setSelectedRegionIds(new Set())
+      queryClient.setQueryData<TextRegion[]>(['regions', projectId, selectedPage], (old) => {
+        if (!old) return old
+        return old.filter((r) => r.id !== regionId)
+      })
+      setSelectedRegionIds((prev) => {
+        const next = new Set(prev)
+        next.delete(regionId)
+        return next
+      })
     },
     onError: (err) => {
       console.error('Error deleting region:', err)
@@ -320,7 +376,7 @@ export default function ProjectPage() {
           await pagesApi.deleteTextRegion(projectId, idsToDelete[i])
           setBulkDeleteProgress({ current: i + 1, total: idsToDelete.length })
         }
-        await refetchRegions()
+        queryClient.invalidateQueries({ queryKey: ['regions', projectId, selectedPage] })
         if (selectedRegionIds.size > 0) {
           const idsToDelete = filteredRegions.map((r) => r.id)
           const hasSelection = idsToDelete.some(id => selectedRegionIds.has(id))
@@ -345,7 +401,7 @@ export default function ProjectPage() {
         setBulkDeleteProgress({ current: i + 1, total: pageNumbers.length })
       }
 
-      await refetchRegions()
+      queryClient.invalidateQueries({ queryKey: ['regions', projectId, selectedPage] })
       // Si la región seleccionada ya no existe, limpiar selección
       const stillExists = (await pagesApi.getTextRegions(projectId, selectedPage)).data.some(
         (r) => selectedRegionIds.has(r.id)
@@ -756,7 +812,11 @@ export default function ProjectPage() {
                   tgt_text: 'Nuevo texto',
                 }).then((res) => {
                   console.log('Text region created:', res.data)
-                  refetchRegions()
+                  queryClient.setQueryData<TextRegion[]>(['regions', projectId, selectedPage], (old) => {
+                    const next = old ? [...old] : []
+                    next.push(res.data)
+                    return next
+                  })
                 }).catch((err) => {
                   console.error('Error creating text region:', err)
                   alert('Error al crear caja: ' + (err.response?.data?.detail || err.message))
@@ -1043,7 +1103,13 @@ export default function ProjectPage() {
                       bbox,
                       src_text: '',
                       tgt_text: '',
-                    }).then(() => refetchRegions())
+                    }).then((res) => {
+                      queryClient.setQueryData<TextRegion[]>(['regions', projectId, selectedPage], (old) => {
+                        const next = old ? [...old] : []
+                        next.push(res.data)
+                        return next
+                      })
+                    })
                   }}
                   onCaptureArea={(bbox) => {
                     setCaptureDialogBbox(bbox)
@@ -1418,7 +1484,13 @@ export default function ProjectPage() {
                 bbox: [x1 + 20, y1 + 20, x2 + 20, y2 + 20],
                 src_text: selectedRegion.src_text,
                 tgt_text: selectedRegion.tgt_text || undefined,
-              }).then(() => refetchRegions())
+              }).then((res) => {
+                queryClient.setQueryData<TextRegion[]>(['regions', projectId, selectedPage], (old) => {
+                  const next = old ? [...old] : []
+                  next.push(res.data)
+                  return next
+                })
+              })
             }}
             onAddToGlossary={async (srcTerm, tgtTerm, scope) => {
               try {
