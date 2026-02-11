@@ -24,11 +24,15 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [resizeCorner, setResizeCorner] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(region.tgt_text || '');
   const dragStart = useRef({ x: 0, y: 0, bbox: [...region.bbox] });
+  const localBboxRef = useRef<number[] | null>(null);
+  const [localBbox, setLocalBbox] = useState<number[] | null>(null);
 
-  const [x1, y1, x2, y2] = region.bbox;
+  const visualBbox = (isDragging || isResizing) && localBbox ? localBbox : region.bbox;
+  const [x1, y1, x2, y2] = visualBbox;
   // Calcular posición y tamaño escalados
   const sx1 = x1 * scale;
   const sy1 = y1 * scale;
@@ -65,6 +69,8 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
         y: e.clientY,
         bbox: [...region.bbox],
       };
+      localBboxRef.current = [...region.bbox];
+      setLocalBbox([...region.bbox]);
     }
   }, [isEditing, onSelect, region.locked, region.bbox]);
 
@@ -80,20 +86,54 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
       
       // Aplicar al bbox original guardado
       const [ox1, oy1, ox2, oy2] = dragStart.current.bbox;
-      onUpdate({
-        bbox: [ox1 + dxOrig, oy1 + dyOrig, ox2 + dxOrig, oy2 + dyOrig],
-      });
+      const next = [ox1 + dxOrig, oy1 + dyOrig, ox2 + dxOrig, oy2 + dyOrig];
+      localBboxRef.current = next;
+      setLocalBbox(next);
+      return;
+    }
+
+    if (isResizing && resizeCorner) {
+      const dx = e.clientX - dragStart.current.x;
+      const dy = e.clientY - dragStart.current.y;
+      const dxOrig = dx / scale;
+      const dyOrig = dy / scale;
+
+      const [ox1, oy1, ox2, oy2] = dragStart.current.bbox;
+      let nx1 = ox1, ny1 = oy1, nx2 = ox2, ny2 = oy2;
+
+      switch (resizeCorner) {
+        case 'nw': nx1 += dxOrig; ny1 += dyOrig; break;
+        case 'ne': nx2 += dxOrig; ny1 += dyOrig; break;
+        case 'sw': nx1 += dxOrig; ny2 += dyOrig; break;
+        case 'se': nx2 += dxOrig; ny2 += dyOrig; break;
+        case 'n': ny1 += dyOrig; break;
+        case 's': ny2 += dyOrig; break;
+        case 'w': nx1 += dxOrig; break;
+        case 'e': nx2 += dxOrig; break;
+      }
+
+      if (nx2 - nx1 > 20 && ny2 - ny1 > 10) {
+        const next = [nx1, ny1, nx2, ny2];
+        localBboxRef.current = next;
+        setLocalBbox(next);
+      }
     }
   }, [isDragging, onUpdate, scale]);
 
   const handleMouseUp = useCallback(() => {
-    if (isDragging) {
-      setIsDragging(false);
+    if (isDragging || isResizing) {
+      const next = localBboxRef.current;
+      if (next && (next[0] !== region.bbox[0] || next[1] !== region.bbox[1] || next[2] !== region.bbox[2] || next[3] !== region.bbox[3])) {
+        onUpdate({ bbox: next });
+      }
     }
-    if (isResizing) {
-      setIsResizing(false);
-    }
-  }, [isDragging, isResizing]);
+
+    if (isDragging) setIsDragging(false);
+    if (isResizing) setIsResizing(false);
+    if (resizeCorner) setResizeCorner(null);
+    localBboxRef.current = null;
+    setLocalBbox(null);
+  }, [isDragging, isResizing, onUpdate, region.bbox, resizeCorner]);
 
   // Attach global mouse events
   React.useEffect(() => {
@@ -113,48 +153,14 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
     if (region.locked) return;
     
     setIsResizing(true);
+    setResizeCorner(corner);
     dragStart.current = {
       x: e.clientX,
       y: e.clientY,
       bbox: [...region.bbox], // Guardar coordenadas ORIGINALES
     };
-
-    const handleResizeMove = (ev: MouseEvent) => {
-      const dx = ev.clientX - dragStart.current.x;
-      const dy = ev.clientY - dragStart.current.y;
-      
-      // Convertir delta a coordenadas originales
-      const dxOrig = dx / scale;
-      const dyOrig = dy / scale;
-      
-      const [ox1, oy1, ox2, oy2] = dragStart.current.bbox;
-      let nx1 = ox1, ny1 = oy1, nx2 = ox2, ny2 = oy2;
-
-      switch (corner) {
-        case 'nw': nx1 += dxOrig; ny1 += dyOrig; break;
-        case 'ne': nx2 += dxOrig; ny1 += dyOrig; break;
-        case 'sw': nx1 += dxOrig; ny2 += dyOrig; break;
-        case 'se': nx2 += dxOrig; ny2 += dyOrig; break;
-        case 'n': ny1 += dyOrig; break;
-        case 's': ny2 += dyOrig; break;
-        case 'w': nx1 += dxOrig; break;
-        case 'e': nx2 += dxOrig; break;
-      }
-
-      // Minimum size (en coordenadas originales)
-      if (nx2 - nx1 > 20 && ny2 - ny1 > 10) {
-        onUpdate({ bbox: [nx1, ny1, nx2, ny2] });
-      }
-    };
-
-    const handleResizeUp = () => {
-      setIsResizing(false);
-      window.removeEventListener('mousemove', handleResizeMove);
-      window.removeEventListener('mouseup', handleResizeUp);
-    };
-
-    window.addEventListener('mousemove', handleResizeMove);
-    window.addEventListener('mouseup', handleResizeUp);
+    localBboxRef.current = [...region.bbox];
+    setLocalBbox([...region.bbox]);
   };
 
   // Double click to edit
@@ -180,6 +186,9 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
 
   return (
     <div
+      data-testid="text-box"
+      data-selected={isSelected ? 'true' : 'false'}
+      data-region-id={region.id}
       style={{
         position: 'absolute',
         left: sx1,
