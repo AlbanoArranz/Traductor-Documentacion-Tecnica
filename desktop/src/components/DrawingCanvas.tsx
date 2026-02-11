@@ -331,6 +331,18 @@ export function DrawingCanvas({
             case 'sw': newPoints = [x1 + resizeOffset.dx, y1, x2, y2 + resizeOffset.dy]; break
             case 'se': newPoints = [x1, y1, x2 + resizeOffset.dx, y2 + resizeOffset.dy]; break
           }
+
+          // Normalizar y aplicar límites mínimos
+          let nx1 = Math.min(newPoints[0], newPoints[2])
+          let nx2 = Math.max(newPoints[0], newPoints[2])
+          let ny1 = Math.min(newPoints[1], newPoints[3])
+          let ny2 = Math.max(newPoints[1], newPoints[3])
+          const minW = 20
+          const minH = 10
+          if (nx2 - nx1 < minW) nx2 = nx1 + minW
+          if (ny2 - ny1 < minH) ny2 = ny1 + minH
+
+          newPoints = [nx1, ny1, nx2, ny2]
           onDrawingUpdate(id, { points: newPoints })
         }
       }
@@ -715,6 +727,7 @@ export function DrawingCanvas({
             handles.push(
               <rect 
                 key={`${id}-nw`}
+                data-testid="drawing-handle-nw"
                 x={cx - rx - 4} y={cy - ry - 4} width={8} height={8} fill="#2563eb" 
                 style={{ cursor: 'nw-resize' }}
                 onMouseDown={(e) => {
@@ -726,6 +739,7 @@ export function DrawingCanvas({
               />,
               <rect 
                 key={`${id}-ne`}
+                data-testid="drawing-handle-ne"
                 x={cx + rx - 4} y={cy - ry - 4} width={8} height={8} fill="#2563eb" 
                 style={{ cursor: 'ne-resize' }}
                 onMouseDown={(e) => {
@@ -737,6 +751,7 @@ export function DrawingCanvas({
               />,
               <rect 
                 key={`${id}-sw`}
+                data-testid="drawing-handle-sw"
                 x={cx - rx - 4} y={cy + ry - 4} width={8} height={8} fill="#2563eb" 
                 style={{ cursor: 'sw-resize' }}
                 onMouseDown={(e) => {
@@ -748,6 +763,7 @@ export function DrawingCanvas({
               />,
               <rect 
                 key={`${id}-se`}
+                data-testid="drawing-handle-se"
                 x={cx + rx - 4} y={cy + ry - 4} width={8} height={8} fill="#2563eb" 
                 style={{ cursor: 'se-resize' }}
                 onMouseDown={(e) => {

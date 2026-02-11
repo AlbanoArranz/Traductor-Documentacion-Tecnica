@@ -116,6 +116,10 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
         case 'e': nx2 += dxOrig; break;
       }
 
+      // Normalizar bbox (mantener orden)
+      if (nx1 > nx2) [nx1, nx2] = [nx2, nx1]
+      if (ny1 > ny2) [ny1, ny2] = [ny2, ny1]
+
       if (nx2 - nx1 > 20 && ny2 - ny1 > 10) {
         const next = [nx1, ny1, nx2, ny2];
         localBboxRef.current = next;
@@ -294,6 +298,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
           {['nw', 'ne', 'sw', 'se'].map((corner) => (
             <div
               key={corner}
+              data-testid={`text-handle-${corner}`}
               onMouseDown={createResizeHandler(corner)}
               style={{
                 position: 'absolute',
@@ -317,6 +322,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
             <>
               {/* N */}
               <div
+                data-testid="text-handle-n"
                 onMouseDown={createResizeHandler('n')}
                 style={{
                   position: 'absolute',
@@ -332,6 +338,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
               />
               {/* S */}
               <div
+                data-testid="text-handle-s"
                 onMouseDown={createResizeHandler('s')}
                 style={{
                   position: 'absolute',
@@ -347,6 +354,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
               />
               {/* W */}
               <div
+                data-testid="text-handle-w"
                 onMouseDown={createResizeHandler('w')}
                 style={{
                   position: 'absolute',
@@ -362,6 +370,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
               />
               {/* E */}
               <div
+                data-testid="text-handle-e"
                 onMouseDown={createResizeHandler('e')}
                 style={{
                   position: 'absolute',
