@@ -3,6 +3,8 @@ API endpoints para páginas de un proyecto.
 """
 
 from typing import List, Optional
+import time
+import logging
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -12,6 +14,22 @@ from ..db.repository import projects_repo, pages_repo, text_regions_repo, glossa
 from ..services import render_service, ocr_provider, compose_service, translate_service
 
 router = APIRouter()
+
+# Uvicorn configura sus propios loggers. Usamos uvicorn.error para garantizar salida en consola.
+logger = logging.getLogger("uvicorn.error")
+logger.setLevel(logging.INFO)
+
+
+def _timing(msg: str) -> None:
+    try:
+        logger.info(msg)
+    except Exception:
+        pass
+    # Fallback para entornos donde el logger no esté configurado como esperamos.
+    try:
+        print(msg, flush=True)
+    except Exception:
+        pass
 
 
 class PageResponse(BaseModel):
@@ -92,6 +110,7 @@ async def render_original(
     dpi: int = Query(default=DEFAULT_DPI),
 ):
     """Renderiza la página original del PDF a PNG."""
+    t0 = time.perf_counter()
     project = projects_repo.get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -101,11 +120,19 @@ async def render_original(
     
     project_dir = PROJECTS_DIR / project_id
     pdf_path = project_dir / "src.pdf"
-    
+
+    t_render0 = time.perf_counter()
     output_path = render_service.render_page(pdf_path, page_number, dpi, project_dir)
+    t_render1 = time.perf_counter()
     
     # Actualizar estado de página
     pages_repo.upsert(project_id, page_number, has_original=True)
+
+    t1 = time.perf_counter()
+    _timing(
+        f"[TIMING] render_original project={project_id} page={page_number} dpi={dpi} "
+        f"render={t_render1 - t_render0:.3f}s total={t1 - t0:.3f}s"
+    )
     
     return {"status": "ok", "path": str(output_path)}
 
@@ -118,6 +145,7 @@ async def run_ocr(
     use_global_filters: bool = Query(default=True, description="Merge project filters with global filters"),
 ):
     """Ejecuta OCR en la página y detecta texto chino."""
+    t0 = time.perf_counter()
     project = projects_repo.get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -145,16 +173,19 @@ async def run_ocr(
     
     # Ejecutar OCR con filtros personalizados y tipo de documento
     try:
+        t_ocr0 = time.perf_counter()
         regions = ocr_provider.detect_text(
             image_path, 
             dpi, 
             custom_filters=custom_filters if custom_filters else None,
             document_type=project.document_type.value
         )
+        t_ocr1 = time.perf_counter()
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
     
     # Traducir automáticamente las regiones detectadas
+    t_trans0 = time.perf_counter()
     if regions:
         global_entries = global_glossary_repo.list_all()
         glossary_map = {e.src_term: e.tgt_term for e in global_entries if e.locked}
@@ -188,9 +219,19 @@ async def run_ocr(
                 translations = translate_service.translate_batch(texts_to_translate)
             for idx, translation in zip(translate_indexes, translations):
                 regions[idx].tgt_text = translation
+    t_trans1 = time.perf_counter()
     
     # Guardar regiones con traducciones
+    t_save0 = time.perf_counter()
     text_regions_repo.replace_for_page(project_id, page_number, regions)
+    t_save1 = time.perf_counter()
+
+    t1 = time.perf_counter()
+    _timing(
+        f"[TIMING] ocr project={project_id} page={page_number} dpi={dpi} "
+        f"detect={t_ocr1 - t_ocr0:.3f}s translate={t_trans1 - t_trans0:.3f}s "
+        f"save={t_save1 - t_save0:.3f}s regions={len(regions)} total={t1 - t0:.3f}s"
+    )
     
     return {"status": "ok", "region_count": len(regions)}
 
@@ -348,6 +389,7 @@ async def render_translated(
 ):
     """Renderiza la página traducida (compone texto ES sobre imagen).
     Si preview=True, usa DPI bajo (150) para previsualización rápida."""
+    t0 = time.perf_counter()
     project = projects_repo.get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -409,6 +451,7 @@ async def render_translated(
     drawings = drawings_repo.list_by_page(project_id, page_number)
     
     # Usar compose_page_with_drawings si hay dibujos, sino compose_page normal
+    t_comp0 = time.perf_counter()
     if drawings:
         output_path = compose_service.compose_page_with_drawings(
             original_path,
@@ -426,9 +469,17 @@ async def render_translated(
             page_number,
             render_dpi,
         )
+    t_comp1 = time.perf_counter()
     
     # Actualizar estado
     pages_repo.upsert(project_id, page_number, has_translated=True)
+
+    t1 = time.perf_counter()
+    _timing(
+        f"[TIMING] render_translated project={project_id} page={page_number} dpi={render_dpi} "
+        f"preview={preview} regions={len(regions)} drawings={len(drawings)} "
+        f"compose={t_comp1 - t_comp0:.3f}s total={t1 - t0:.3f}s"
+    )
     
     return {"status": "ok", "path": str(output_path), "dpi": render_dpi}
 

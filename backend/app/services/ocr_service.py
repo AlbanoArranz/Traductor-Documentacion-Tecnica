@@ -161,6 +161,10 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None, documen
         )
         regions.append(region)
 
+    # Recheck es caro en CPU: por defecto está desactivado, pero en documentos "manual"
+    # lo forzamos porque ayuda a eliminar etiquetas/ruido.
+    enable_label_recheck = bool(get_ocr_enable_label_recheck()) or (document_type == "manual")
+
     if get_ocr_mode() == "advanced" and regions:
         from .ocr_postprocess import filter_regions_advanced
 
@@ -168,10 +172,11 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None, documen
             image_path=image_path,
             regions=regions,
             min_ocr_confidence=get_min_ocr_confidence(),
-            enable_label_recheck=get_ocr_enable_label_recheck(),
+            enable_label_recheck=enable_label_recheck,
             recheck_max_regions_per_page=get_ocr_recheck_max_regions_per_page(),
+            source_dpi=dpi,
         )
-    elif get_ocr_enable_label_recheck() and regions:
+    elif enable_label_recheck and regions:
         # Modo básico con recheck activado
         from .ocr_postprocess import recheck_suspicious_regions
 
@@ -179,6 +184,7 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None, documen
             image_path=image_path,
             regions=regions,
             recheck_max_regions_per_page=get_ocr_recheck_max_regions_per_page(),
+            source_dpi=dpi,
         )
     
     # Para modo manual, agrupar líneas en párrafos

@@ -39,6 +39,24 @@ def _crop_np(image_path: Path, bbox: List[float]) -> np.ndarray:
         return np.array(crop)
 
 
+def _crop_np_scaled(image_path: Path, bbox: List[float], scale: float) -> np.ndarray:
+    if scale is None or float(scale) >= 0.999:
+        return _crop_np(image_path, bbox)
+    x1, y1, x2, y2 = bbox
+    with Image.open(image_path) as img:
+        w, h = img.size
+        pad = max(1, int(min(w, h) * 0.002))
+        left = max(0, int(x1) - pad)
+        top = max(0, int(y1) - pad)
+        right = min(w, int(x2) + pad)
+        bottom = min(h, int(y2) + pad)
+        crop = img.crop((left, top, right, bottom)).convert("RGB")
+        new_w = max(1, int(crop.size[0] * float(scale)))
+        new_h = max(1, int(crop.size[1] * float(scale)))
+        crop = crop.resize((new_w, new_h), Image.BILINEAR)
+        return np.array(crop)
+
+
 def _looks_like_label_en(text: str) -> bool:
     return is_pure_label_like(text)
 
@@ -47,6 +65,8 @@ def recheck_suspicious_regions(
     image_path: Path,
     regions: List[TextRegion],
     recheck_max_regions_per_page: int,
+    source_dpi: Optional[int] = None,
+    target_dpi: int = 150,
 ) -> List[TextRegion]:
     """
     Aplica recheck OCR EN en regiones sospechosas (cajas pequeñas con texto corto).
@@ -67,32 +87,48 @@ def recheck_suspicious_regions(
     if not suspicious:
         return out
 
+    max_to_check = int(recheck_max_regions_per_page)
+    to_check = suspicious[:max_to_check]
+    passthrough = suspicious[max_to_check:]
+
+    scale = 1.0
+    if source_dpi and int(source_dpi) > 0:
+        scale = min(1.0, float(target_dpi) / float(source_dpi))
+
     reader = _get_easyocr_en_reader()
-    checked = 0
-
-    for r in suspicious:
-        if checked >= int(recheck_max_regions_per_page):
-            out.append(r)
-            continue
-
+    crops: List[np.ndarray] = []
+    for r in to_check:
         try:
-            crop_np = _crop_np(image_path, r.bbox)
-            res = reader.readtext(crop_np)
+            crops.append(_crop_np_scaled(image_path, r.bbox, scale))
+        except Exception:
+            crops.append(_crop_np(image_path, r.bbox))
+
+    results: List[list] = []
+    try:
+        # EasyOCR soporta batch en algunas versiones
+        readtext_batched = getattr(reader, "readtext_batched", None)
+        if callable(readtext_batched):
+            results = readtext_batched(crops)
+        else:
+            results = [reader.readtext(c) for c in crops]
+    except Exception as e:
+        logger.debug("OCR recheck batch failed: %s", e)
+        results = [reader.readtext(c) for c in crops]
+
+    for r, res in zip(to_check, results):
+        try:
             if res:
-                # res: [(bbox, text, conf), ...]
                 best = max(res, key=lambda it: float(it[2] if len(it) > 2 else 0.0))
                 en_text = normalize_ocr_text(best[1])
                 en_conf = float(best[2] if len(best) > 2 else 0.0)
-
-                # Si EN ve claramente una etiqueta alfanumérica, descartamos esta región.
                 if en_conf >= 0.6 and _looks_like_label_en(en_text) and not has_han(en_text):
-                    checked += 1
                     continue
         except Exception as e:
-            logger.debug("OCR recheck failed: %s", e)
+            logger.debug("OCR recheck parse failed: %s", e)
 
-        checked += 1
         out.append(r)
+
+    out.extend(passthrough)
 
     return out
 
@@ -103,6 +139,8 @@ def filter_regions_advanced(
     min_ocr_confidence: float,
     enable_label_recheck: bool,
     recheck_max_regions_per_page: int,
+    source_dpi: Optional[int] = None,
+    target_dpi: int = 150,
 ) -> List[TextRegion]:
     out: List[TextRegion] = []
 
@@ -128,31 +166,46 @@ def filter_regions_advanced(
     if not enable_label_recheck or not suspicious:
         return out + suspicious
 
+    max_to_check = int(recheck_max_regions_per_page)
+    to_check = suspicious[:max_to_check]
+    passthrough = suspicious[max_to_check:]
+
+    scale = 1.0
+    if source_dpi and int(source_dpi) > 0:
+        scale = min(1.0, float(target_dpi) / float(source_dpi))
+
     reader = _get_easyocr_en_reader()
-    checked = 0
-
-    for r in suspicious:
-        if checked >= int(recheck_max_regions_per_page):
-            out.append(r)
-            continue
-
+    crops: List[np.ndarray] = []
+    for r in to_check:
         try:
-            crop_np = _crop_np(image_path, r.bbox)
-            res = reader.readtext(crop_np)
+            crops.append(_crop_np_scaled(image_path, r.bbox, scale))
+        except Exception:
+            crops.append(_crop_np(image_path, r.bbox))
+
+    results: List[list] = []
+    try:
+        readtext_batched = getattr(reader, "readtext_batched", None)
+        if callable(readtext_batched):
+            results = readtext_batched(crops)
+        else:
+            results = [reader.readtext(c) for c in crops]
+    except Exception as e:
+        logger.debug("OCR recheck batch failed: %s", e)
+        results = [reader.readtext(c) for c in crops]
+
+    for r, res in zip(to_check, results):
+        try:
             if res:
-                # res: [(bbox, text, conf), ...]
                 best = max(res, key=lambda it: float(it[2] if len(it) > 2 else 0.0))
                 en_text = normalize_ocr_text(best[1])
                 en_conf = float(best[2] if len(best) > 2 else 0.0)
-
-                # Si EN ve claramente una etiqueta alfanumérica, descartamos esta región.
                 if en_conf >= 0.6 and _looks_like_label_en(en_text) and not has_han(en_text):
-                    checked += 1
                     continue
         except Exception as e:
-            logger.debug("OCR recheck failed: %s", e)
+            logger.debug("OCR recheck parse failed: %s", e)
 
-        checked += 1
         out.append(r)
+
+    out.extend(passthrough)
 
     return out
