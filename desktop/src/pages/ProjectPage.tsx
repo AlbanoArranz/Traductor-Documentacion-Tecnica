@@ -76,6 +76,8 @@ export default function ProjectPage() {
   const [imageModeActive, setImageModeActive] = useState(false)
   const [captureDialogBbox, setCaptureDialogBbox] = useState<number[] | null>(null)
   const [placingSnippetData, setPlacingSnippetData] = useState<{ base64: string; width: number; height: number } | null>(null)
+  const [composeDirtyPages, setComposeDirtyPages] = useState<Record<number, boolean>>({})
+  const autoComposeTimerRef = useRef<number | null>(null)
   // Estado para Undo/Redo
   const { undo, redo, canUndo, canRedo } = useUndoRedo()
 
@@ -115,6 +117,7 @@ export default function ProjectPage() {
         next.push(created)
         return next
       })
+      setComposeDirtyPages((prev) => ({ ...prev, [selectedPage]: true }))
     },
   })
 
@@ -126,6 +129,7 @@ export default function ProjectPage() {
         return old.filter((d) => d.id !== drawingId)
       })
       setSelectedDrawingIds((prev) => prev.filter((id) => id !== drawingId))
+      setComposeDirtyPages((prev) => ({ ...prev, [selectedPage]: true }))
     },
   })
 
@@ -140,6 +144,8 @@ export default function ProjectPage() {
         if (!old) return old
         return old.map((d) => (d.id === id ? { ...d, ...updates } : d))
       })
+
+      setComposeDirtyPages((prev) => ({ ...prev, [selectedPage]: true }))
 
       return { previous }
     },
@@ -196,6 +202,7 @@ export default function ProjectPage() {
     mutationFn: () => pagesApi.runOcr(projectId!, selectedPage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['regions', projectId, selectedPage] })
+      setComposeDirtyPages((prev) => ({ ...prev, [selectedPage]: true }))
     },
   })
 
@@ -204,8 +211,41 @@ export default function ProjectPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pages', projectId] })
       setImageTimestamp(Date.now())
+      setComposeDirtyPages((prev) => ({ ...prev, [selectedPage]: false }))
     },
   })
+
+  const currentPage = pages?.find(p => p.page_number === selectedPage)
+  const canShowTranslated = currentPage?.has_translated
+  const canShowOriginal = currentPage?.has_original
+  const isComposeDirty = !!composeDirtyPages[selectedPage]
+
+  useEffect(() => {
+    if (!projectId) return
+    if (!isComposeDirty) return
+    if (drawingMode) return
+    if (!canShowOriginal) return
+    if (composeMutation.isPending) return
+    if (composeAllRunning) return
+
+    if (autoComposeTimerRef.current) {
+      window.clearTimeout(autoComposeTimerRef.current)
+      autoComposeTimerRef.current = null
+    }
+
+    autoComposeTimerRef.current = window.setTimeout(() => {
+      if (drawingMode) return
+      if (composeMutation.isPending) return
+      composeMutation.mutate()
+    }, 1500)
+
+    return () => {
+      if (autoComposeTimerRef.current) {
+        window.clearTimeout(autoComposeTimerRef.current)
+        autoComposeTimerRef.current = null
+      }
+    }
+  }, [projectId, selectedPage, isComposeDirty, drawingMode, canShowOriginal, composeMutation.isPending, composeAllRunning])
 
   const updateRegionMutation = useMutation({
     mutationFn: (data: { regionId: string; updates: Partial<TextRegion> }) =>
@@ -218,6 +258,8 @@ export default function ProjectPage() {
         if (!old) return old
         return old.map((r) => (r.id === regionId ? { ...r, ...updates } : r))
       })
+
+      setComposeDirtyPages((prev) => ({ ...prev, [selectedPage]: true }))
 
       return { previous }
     },
@@ -254,6 +296,7 @@ export default function ProjectPage() {
         next.delete(regionId)
         return next
       })
+      setComposeDirtyPages((prev) => ({ ...prev, [selectedPage]: true }))
     },
     onError: (err) => {
       console.error('Error deleting region:', err)
@@ -636,9 +679,6 @@ export default function ProjectPage() {
     }
   }, [])
 
-  const currentPage = pages?.find(p => p.page_number === selectedPage)
-  const canShowTranslated = currentPage?.has_translated
-  const canShowOriginal = currentPage?.has_original
   const imageKind = (showTranslated && canShowTranslated) ? 'translated' : 'original'
   const imageUrl = (canShowOriginal || canShowTranslated)
     ? `${pagesApi.getImageUrl(projectId!, selectedPage, imageKind as 'original' | 'translated')}&t=${imageTimestamp}`
@@ -833,7 +873,7 @@ export default function ProjectPage() {
               disabled={composeMutation.isPending || !regions?.length}
               className="px-3 py-1 text-sm border rounded hover:bg-white disabled:opacity-50"
             >
-              {composeMutation.isPending ? 'Componiendo...' : 'Componer'}
+              {composeMutation.isPending ? 'Componiendo...' : `Componer${isComposeDirty ? '*' : ''}`}
             </button>
             <button
               onClick={async () => {
