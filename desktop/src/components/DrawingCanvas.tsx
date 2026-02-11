@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { DrawingElement } from '../lib/api'
 
-export type DrawingTool = 'select' | 'line' | 'rect' | 'circle' | 'polyline' | 'add_text_box' | null
+export type DrawingTool = 'select' | 'line' | 'rect' | 'circle' | 'polyline' | 'add_text_box' | 'capture' | 'place_snippet' | null
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | null
 
 interface DrawingCanvasProps {
@@ -18,6 +18,8 @@ interface DrawingCanvasProps {
   onDrawingDelete: (id: string) => void
   onDrawingUpdate?: (id: string, updates: Partial<DrawingElement>) => void
   onAddTextBox?: (position: { x: number; y: number }) => void
+  onCaptureArea?: (bbox: number[]) => void
+  onPlaceSnippet?: (position: { x: number; y: number }) => void
 }
 
 export function DrawingCanvas({
@@ -34,13 +36,17 @@ export function DrawingCanvas({
   onDrawingDelete,
   onDrawingUpdate,
   onAddTextBox,
+  onCaptureArea,
+  onPlaceSnippet,
 }: DrawingCanvasProps) {
   const [isDrawing, setIsDrawing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
   const [resizeHandle, setResizeHandle] = useState<ResizeHandle>(null)
   const [resizeStartPoint, setResizeStartPoint] = useState<{ x: number; y: number } | null>(null)
+  const [resizeOffset, setResizeOffset] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState('')
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null)
@@ -58,6 +64,89 @@ export function DrawingCanvas({
       x: (e.clientX - rect.left) / scale,
       y: (e.clientY - rect.top) / scale,
     }
+  }
+
+  const _distPointToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
+    const vx = x2 - x1
+    const vy = y2 - y1
+    const wx = px - x1
+    const wy = py - y1
+
+    const c1 = vx * wx + vy * wy
+    if (c1 <= 0) return Math.hypot(px - x1, py - y1)
+
+    const c2 = vx * vx + vy * vy
+    if (c2 <= c1) return Math.hypot(px - x2, py - y2)
+
+    const b = c1 / c2
+    const bx = x1 + b * vx
+    const by = y1 + b * vy
+    return Math.hypot(px - bx, py - by)
+  }
+
+  const _hitTestDrawing = (d: DrawingElement, p: { x: number; y: number }): boolean => {
+    const x = p.x
+    const y = p.y
+
+    if (d.element_type === 'line' && d.points.length >= 4) {
+      const [x1, y1, x2, y2] = d.points
+      const padding = Math.max((d.stroke_width || strokeWidth) / 2, 6)
+      return _distPointToSegment(x, y, x1, y1, x2, y2) <= padding
+    }
+
+    if (d.element_type === 'polyline' && d.points.length >= 4 && d.points.length % 2 === 0) {
+      const padding = Math.max((d.stroke_width || strokeWidth) / 2, 6)
+      for (let i = 0; i < d.points.length - 2; i += 2) {
+        const x1 = d.points[i]
+        const y1 = d.points[i + 1]
+        const x2 = d.points[i + 2]
+        const y2 = d.points[i + 3]
+        if (_distPointToSegment(x, y, x1, y1, x2, y2) <= padding) return true
+      }
+      return false
+    }
+
+    if ((d.element_type === 'rect' || d.element_type === 'image') && d.points.length >= 4) {
+      const [x1, y1, x2, y2] = d.points
+      const minX = Math.min(x1, x2)
+      const maxX = Math.max(x1, x2)
+      const minY = Math.min(y1, y2)
+      const maxY = Math.max(y1, y2)
+      const padding = 4
+      return x >= minX - padding && x <= maxX + padding && y >= minY - padding && y <= maxY + padding
+    }
+
+    if (d.element_type === 'circle' && d.points.length >= 4) {
+      const [x1, y1, x2, y2] = d.points
+      const cx = (x1 + x2) / 2
+      const cy = (y1 + y2) / 2
+      const rx = Math.abs(x2 - x1) / 2
+      const ry = Math.abs(y2 - y1) / 2
+      if (rx <= 0 || ry <= 0) return false
+      const nx = (x - cx) / rx
+      const ny = (y - cy) / ry
+      const padding = 0.15
+      return nx * nx + ny * ny <= (1 + padding) * (1 + padding)
+    }
+
+    if (d.element_type === 'text' && d.points.length >= 2 && d.text) {
+      const [tx, ty] = d.points
+      const fontSize = d.font_size || 14
+      const w = (d.text.length * fontSize * 0.6 + 10)
+      const h = (fontSize + 10)
+      const padding = 6
+      return x >= tx - padding && x <= tx + w + padding && y >= ty - h - padding && y <= ty + padding
+    }
+
+    return false
+  }
+
+  const _hitTestTopFirst = (p: { x: number; y: number }): string | null => {
+    for (let i = drawings.length - 1; i >= 0; i--) {
+      const d = drawings[i]
+      if (_hitTestDrawing(d, p)) return d.id
+    }
+    return null
   }
 
   const finishPolyline = useCallback(() => {
@@ -83,11 +172,33 @@ export function DrawingCanvas({
   }, [onDrawingCreate, strokeColor, strokeWidth])
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Si la herramienta es 'select', permitir que el click pase a los elementos
-    // pero si se hace click en el canvas vacío, deseleccionar
     if (!tool || tool === 'select') {
-      if (e.target === canvasRef.current || e.target === e.currentTarget) {
+      const point = getScaledPoint(e)
+      const hitId = _hitTestTopFirst(point)
+      if (!hitId) {
         onDrawingSelect([])
+        return
+      }
+
+      if (e.ctrlKey || e.metaKey) {
+        if (selectedDrawingIds.includes(hitId)) {
+          onDrawingSelect(selectedDrawingIds.filter(id => id !== hitId))
+        } else {
+          onDrawingSelect([...selectedDrawingIds, hitId])
+        }
+      } else {
+        if (selectedDrawingIds.length !== 1 || selectedDrawingIds[0] !== hitId) {
+          onDrawingSelect([hitId])
+        }
+      }
+
+      const willDragIds = (e.ctrlKey || e.metaKey)
+        ? (selectedDrawingIds.includes(hitId) ? selectedDrawingIds : [...selectedDrawingIds, hitId])
+        : [hitId]
+
+      if (onDrawingUpdate && willDragIds.includes(hitId)) {
+        setIsDragging(true)
+        setDragStart(point)
       }
       return
     }
@@ -98,6 +209,13 @@ export function DrawingCanvas({
       // Crear región de texto (TextRegion) en lugar de DrawingElement
       if (onAddTextBox) {
         onAddTextBox(point)
+      }
+      return
+    }
+
+    if (tool === 'place_snippet') {
+      if (onPlaceSnippet) {
+        onPlaceSnippet(point)
       }
       return
     }
@@ -164,68 +282,62 @@ export function DrawingCanvas({
       } else {
         setCurrentPoint(point)
       }
-    } else if (isDragging && dragStart && onDrawingUpdate) {
+    } else if (isDragging && dragStart) {
       const current = getScaledPoint(e)
       const dx = current.x - dragStart.x
       const dy = current.y - dragStart.y
-      
-      if (Math.abs(dx) > 0 || Math.abs(dy) > 0) {
-        selectedDrawingIds.forEach(id => {
-          const drawing = drawings.find(d => d.id === id)
-          if (drawing) {
-            const newPoints = drawing.points.map((p, i) => 
-              i % 2 === 0 ? p + dx : p + dy
-            )
-            onDrawingUpdate(id, { points: newPoints })
-          }
-        })
-        setDragStart(current)
-      }
-    } else if (isResizing && resizeHandle && resizeStartPoint && onDrawingUpdate && selectedDrawingIds.length === 1) {
+      // Acumular offset local sin llamar API
+      setDragOffset({ dx, dy })
+    } else if (isResizing && resizeHandle && resizeStartPoint && selectedDrawingIds.length === 1) {
       const current = getScaledPoint(e)
       const dx = current.x - resizeStartPoint.x
       const dy = current.y - resizeStartPoint.y
-      
-      const id = selectedDrawingIds[0]
-      const drawing = drawings.find(d => d.id === id)
-      if (drawing && drawing.points.length >= 4) {
-        const [x1, y1, x2, y2] = drawing.points
-        let newPoints: number[] = []
-        
-        switch (resizeHandle) {
-          case 'nw':
-            newPoints = [x1 + dx, y1 + dy, x2, y2]
-            break
-          case 'ne':
-            newPoints = [x1, y1 + dy, x2 + dx, y2]
-            break
-          case 'sw':
-            newPoints = [x1 + dx, y1, x2, y2 + dy]
-            break
-          case 'se':
-            newPoints = [x1, y1, x2 + dx, y2 + dy]
-            break
-          default:
-            newPoints = [x1, y1, x2, y2]
-        }
-        
-        onDrawingUpdate(id, { points: newPoints })
-        setResizeStartPoint(current)
-      }
+      // Acumular offset local sin llamar API
+      setResizeOffset({ dx, dy })
     }
   }
 
   const handleMouseUp = () => {
     if (isDragging) {
+      // Commit drag: aplicar offset acumulado de una sola vez
+      if (onDrawingUpdate && (dragOffset.dx !== 0 || dragOffset.dy !== 0)) {
+        selectedDrawingIds.forEach(id => {
+          const drawing = drawings.find(d => d.id === id)
+          if (drawing) {
+            const newPoints = drawing.points.map((p, i) =>
+              i % 2 === 0 ? p + dragOffset.dx : p + dragOffset.dy
+            )
+            onDrawingUpdate(id, { points: newPoints })
+          }
+        })
+      }
       setIsDragging(false)
       setDragStart(null)
+      setDragOffset({ dx: 0, dy: 0 })
       return
     }
     
     if (isResizing) {
+      // Commit resize: aplicar offset acumulado de una sola vez
+      if (onDrawingUpdate && selectedDrawingIds.length === 1 && (resizeOffset.dx !== 0 || resizeOffset.dy !== 0)) {
+        const id = selectedDrawingIds[0]
+        const drawing = drawings.find(d => d.id === id)
+        if (drawing && drawing.points.length >= 4) {
+          const [x1, y1, x2, y2] = drawing.points
+          let newPoints: number[] = [x1, y1, x2, y2]
+          switch (resizeHandle) {
+            case 'nw': newPoints = [x1 + resizeOffset.dx, y1 + resizeOffset.dy, x2, y2]; break
+            case 'ne': newPoints = [x1, y1 + resizeOffset.dy, x2 + resizeOffset.dx, y2]; break
+            case 'sw': newPoints = [x1 + resizeOffset.dx, y1, x2, y2 + resizeOffset.dy]; break
+            case 'se': newPoints = [x1, y1, x2 + resizeOffset.dx, y2 + resizeOffset.dy]; break
+          }
+          onDrawingUpdate(id, { points: newPoints })
+        }
+      }
       setIsResizing(false)
       setResizeHandle(null)
       setResizeStartPoint(null)
+      setResizeOffset({ dx: 0, dy: 0 })
       return
     }
     
@@ -281,6 +393,14 @@ export function DrawingCanvas({
         text_color: '#000000',
         image_data: null,
       })
+    } else if (tool === 'capture') {
+      const x1 = Math.min(startPoint.x, currentPoint.x)
+      const y1 = Math.min(startPoint.y, currentPoint.y)
+      const x2 = Math.max(startPoint.x, currentPoint.x)
+      const y2 = Math.max(startPoint.y, currentPoint.y)
+      if (x2 - x1 > 5 && y2 - y1 > 5 && onCaptureArea) {
+        onCaptureArea([x1, y1, x2, y2])
+      }
     }
 
     setIsDrawing(false)
@@ -391,6 +511,15 @@ export function DrawingCanvas({
     }
   }
 
+  // Calcular offset visual para elementos seleccionados durante drag/resize
+  const getVisualOffset = (d: DrawingElement): { dx: number; dy: number } => {
+    const isSelected = selectedDrawingIds.includes(d.id)
+    if (!isSelected) return { dx: 0, dy: 0 }
+    if (isDragging) return { dx: dragOffset.dx * scale, dy: dragOffset.dy * scale }
+    if (isResizing && selectedDrawingIds.length === 1) return { dx: 0, dy: 0 } // resize aplica en puntos
+    return { dx: 0, dy: 0 }
+  }
+
   const renderDrawing = (d: DrawingElement) => {
     const isSelected = selectedDrawingIds.includes(d.id)
 
@@ -399,6 +528,9 @@ export function DrawingCanvas({
       return (
         <line
           key={d.id}
+          data-testid="drawing"
+          data-drawing-id={d.id}
+          data-selected={isSelected ? 'true' : 'false'}
           x1={x1 * scale}
           y1={y1 * scale}
           x2={x2 * scale}
@@ -406,22 +538,6 @@ export function DrawingCanvas({
           stroke={d.stroke_color}
           strokeWidth={d.stroke_width}
           style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (tool === 'select') {
-              if (e.ctrlKey || e.metaKey) {
-                // Toggle selection
-                if (selectedDrawingIds.includes(d.id)) {
-                  onDrawingSelect(selectedDrawingIds.filter(id => id !== d.id))
-                } else {
-                  onDrawingSelect([...selectedDrawingIds, d.id])
-                }
-              } else {
-                // Single selection
-                onDrawingSelect([d.id])
-              }
-            }
-          }}
           onMouseDown={(e) => {
             e.stopPropagation()
             if (tool === 'select' && selectedDrawingIds.includes(d.id) && onDrawingUpdate) {
@@ -429,6 +545,7 @@ export function DrawingCanvas({
               setDragStart(getScaledPoint(e))
             }
           }}
+          className={isSelected ? 'drawing-selected' : ''}
         />
       )
     }
@@ -443,6 +560,9 @@ export function DrawingCanvas({
         return (
           <ellipse
             key={d.id}
+            data-testid="drawing"
+            data-drawing-id={d.id}
+            data-selected={isSelected ? 'true' : 'false'}
             cx={cx * scale}
             cy={cy * scale}
             rx={rx * scale}
@@ -451,20 +571,6 @@ export function DrawingCanvas({
             strokeWidth={d.stroke_width}
             fill={d.fill_color || 'transparent'}
             style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
-            onClick={(e) => {
-              e.stopPropagation()
-              if (tool === 'select') {
-                if (e.ctrlKey || e.metaKey) {
-                  if (selectedDrawingIds.includes(d.id)) {
-                    onDrawingSelect(selectedDrawingIds.filter(id => id !== d.id))
-                  } else {
-                    onDrawingSelect([...selectedDrawingIds, d.id])
-                  }
-                } else {
-                  onDrawingSelect([d.id])
-                }
-              }
-            }}
             onMouseDown={(e) => {
               e.stopPropagation()
               if (tool === 'select' && selectedDrawingIds.includes(d.id) && onDrawingUpdate) {
@@ -486,6 +592,9 @@ export function DrawingCanvas({
       return (
         <rect
           key={d.id}
+          data-testid="drawing"
+          data-drawing-id={d.id}
+          data-selected={isSelected ? 'true' : 'false'}
           x={x1 * scale}
           y={y1 * scale}
           width={(x2 - x1) * scale}
@@ -494,22 +603,6 @@ export function DrawingCanvas({
           strokeWidth={d.stroke_width}
           fill={d.fill_color || 'transparent'}
           style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (tool === 'select') {
-              if (e.ctrlKey || e.metaKey) {
-                // Toggle selection
-                if (selectedDrawingIds.includes(d.id)) {
-                  onDrawingSelect(selectedDrawingIds.filter(id => id !== d.id))
-                } else {
-                  onDrawingSelect([...selectedDrawingIds, d.id])
-                }
-              } else {
-                // Single selection
-                onDrawingSelect([d.id])
-              }
-            }
-          }}
           onMouseDown={(e) => {
             e.stopPropagation()
             if (tool === 'select' && selectedDrawingIds.includes(d.id) && onDrawingUpdate) {
@@ -517,6 +610,7 @@ export function DrawingCanvas({
               setDragStart(getScaledPoint(e))
             }
           }}
+          className={isSelected ? 'drawing-selected' : ''}
         />
       )
     }
@@ -526,28 +620,15 @@ export function DrawingCanvas({
       return (
         <text
           key={d.id}
+          data-testid="drawing"
+          data-drawing-id={d.id}
+          data-selected={isSelected ? 'true' : 'false'}
           x={x * scale}
           y={y * scale}
           fill={d.text_color}
           fontSize={d.font_size * scale}
           fontFamily={d.font_family}
           style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (tool === 'select') {
-              if (e.ctrlKey || e.metaKey) {
-                // Toggle selection
-                if (selectedDrawingIds.includes(d.id)) {
-                  onDrawingSelect(selectedDrawingIds.filter(id => id !== d.id))
-                } else {
-                  onDrawingSelect([...selectedDrawingIds, d.id])
-                }
-              } else {
-                // Single selection
-                onDrawingSelect([d.id])
-              }
-            }
-          }}
           onMouseDown={(e) => {
             e.stopPropagation()
             if (tool === 'select' && selectedDrawingIds.includes(d.id) && onDrawingUpdate) {
@@ -555,9 +636,37 @@ export function DrawingCanvas({
               setDragStart(getScaledPoint(e))
             }
           }}
+          className={isSelected ? 'drawing-selected' : ''}
         >
           {d.text}
         </text>
+      )
+    }
+
+    if (d.element_type === 'image' && d.image_data && d.points.length >= 4) {
+      const [x1, y1, x2, y2] = d.points
+      return (
+        <image
+          key={d.id}
+          data-testid="drawing"
+          data-drawing-id={d.id}
+          data-selected={isSelected ? 'true' : 'false'}
+          x={x1 * scale}
+          y={y1 * scale}
+          width={(x2 - x1) * scale}
+          height={(y2 - y1) * scale}
+          href={`data:image/png;base64,${d.image_data}`}
+          preserveAspectRatio="none"
+          style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            if (tool === 'select' && selectedDrawingIds.includes(d.id) && onDrawingUpdate) {
+              setIsDragging(true)
+              setDragStart(getScaledPoint(e))
+            }
+          }}
+          className={isSelected ? 'drawing-selected' : ''}
+        />
       )
     }
 
@@ -583,7 +692,7 @@ export function DrawingCanvas({
             cy = ((y1 + y2) / 2) * scale
             rx = (Math.abs(x2 - x1) / 2 + 6) * scale
             ry = (Math.abs(y2 - y1) / 2 + 6) * scale
-          } else if ((selected.element_type === 'rect' || selected.element_type === 'circle') && selected.points.length >= 4) {
+          } else if ((selected.element_type === 'rect' || selected.element_type === 'circle' || selected.element_type === 'image') && selected.points.length >= 4) {
             const [x1, y1, x2, y2] = selected.points
             cx = ((x1 + x2) / 2) * scale
             cy = ((y1 + y2) / 2) * scale
@@ -725,6 +834,25 @@ export function DrawingCanvas({
       )
     }
 
+    if (tool === 'capture') {
+      const x1 = Math.min(startPoint.x, currentPoint.x)
+      const y1 = Math.min(startPoint.y, currentPoint.y)
+      const x2 = Math.max(startPoint.x, currentPoint.x)
+      const y2 = Math.max(startPoint.y, currentPoint.y)
+      return (
+        <rect
+          x={x1 * scale}
+          y={y1 * scale}
+          width={(x2 - x1) * scale}
+          height={(y2 - y1) * scale}
+          stroke="#2563eb"
+          strokeWidth={2}
+          fill="rgba(37, 99, 235, 0.1)"
+          strokeDasharray="6,3"
+        />
+      )
+    }
+
     if (tool === 'rect' || tool === 'circle') {
       const x1 = Math.min(startPoint.x, currentPoint.x)
       const y1 = Math.min(startPoint.y, currentPoint.y)
@@ -769,14 +897,15 @@ export function DrawingCanvas({
 
   return (
     <div
+      data-testid="drawing-canvas"
       ref={canvasRef}
       className="absolute top-0 left-0"
       style={{
         width: imageSize.width * scale,
         height: imageSize.height * scale,
-        cursor: tool === 'select' ? 'default' : tool === 'add_text_box' ? 'text' : 'crosshair',
+        cursor: tool === 'select' ? 'default' : tool === 'add_text_box' ? 'text' : tool === 'place_snippet' ? 'copy' : 'crosshair',
       }}
-      onMouseDown={handleMouseDown}
+      onMouseDownCapture={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
@@ -792,7 +921,12 @@ export function DrawingCanvas({
         <style>
           {`.drawing-selected { filter: drop-shadow(0 0 3px #2563eb); }`}
         </style>
-        {drawings.map(renderDrawing)}
+        {drawings.map(d => {
+          const vo = getVisualOffset(d)
+          return vo.dx === 0 && vo.dy === 0
+            ? renderDrawing(d)
+            : <g key={`wrap-${d.id}`} transform={`translate(${vo.dx},${vo.dy})`}>{renderDrawing(d)}</g>
+        })}
         {renderSelectionHighlight()}
         {renderPreview()}
       </svg>
