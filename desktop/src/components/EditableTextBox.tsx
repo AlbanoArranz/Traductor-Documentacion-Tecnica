@@ -30,6 +30,10 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
   const dragStart = useRef({ x: 0, y: 0, bbox: [...region.bbox] });
   const localBboxRef = useRef<number[] | null>(null);
   const [localBbox, setLocalBbox] = useState<number[] | null>(null);
+  const editSessionRef = useRef<{ original: string; done: boolean }>({
+    original: region.tgt_text || '',
+    done: false,
+  });
 
   const visualBbox = (isDragging || isResizing) && localBbox ? localBbox : region.bbox;
   const [x1, y1, x2, y2] = visualBbox;
@@ -167,19 +171,30 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
   const handleDoubleClick = () => {
     if (!region.locked) {
       setIsEditing(true);
-      setEditText(region.tgt_text || '');
+      const original = region.tgt_text || '';
+      editSessionRef.current = { original, done: false };
+      setEditText(original);
     }
   };
 
   const handleEditSubmit = () => {
+    if (editSessionRef.current.done) return;
+    editSessionRef.current.done = true;
     onUpdate({ tgt_text: editText });
     setIsEditing(false);
   };
 
   const handleEditKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
+      if (e.shiftKey) return;
+      e.preventDefault();
       handleEditSubmit();
-    } else if (e.key === 'Escape') {
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      editSessionRef.current.done = true;
+      setEditText(editSessionRef.current.original);
       setIsEditing(false);
     }
   };
@@ -218,9 +233,13 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
       {/* Text content */}
       {isEditing ? (
         <textarea
+          data-testid="text-box-editor"
           value={editText}
           onChange={(e) => setEditText(e.target.value)}
-          onBlur={handleEditSubmit}
+          onBlur={() => {
+            if (editSessionRef.current.done) return;
+            handleEditSubmit();
+          }}
           onKeyDown={handleEditKeyDown}
           autoFocus
           style={{
