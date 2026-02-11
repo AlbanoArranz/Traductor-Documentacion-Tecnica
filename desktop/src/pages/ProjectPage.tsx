@@ -11,6 +11,7 @@ import {
   exportApi,
   settingsApi,
   drawingsApi,
+  snippetsApi,
 } from '../lib/api'
 import type { TextRegion, OcrRegionFilter, DrawingElement } from '../lib/api'
 import { EditableTextBox } from '../components/EditableTextBox'
@@ -18,7 +19,11 @@ import { RegionPropertiesPanel } from '../components/RegionPropertiesPanel'
 import { HelpMenu } from '../components/HelpMenu'
 import { DrawingCanvas, type DrawingTool } from '../components/DrawingCanvas'
 import { DrawingToolbar } from '../components/DrawingToolbar'
+import { DrawingOverlay } from '../components/DrawingOverlay'
+import { SnippetLibraryPanel } from '../components/SnippetLibraryPanel'
+import { CaptureDialog } from '../components/CaptureDialog'
 import { useUndoRedo } from '../lib/undoRedo'
+import toast from 'react-hot-toast'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -67,8 +72,12 @@ export default function ProjectPage() {
   const [drawingStrokeWidth, setDrawingStrokeWidth] = useState(2)
   const [drawingFillColor, setDrawingFillColor] = useState<string | null>(null)
   const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([])
+  // Estado para librería de imágenes
+  const [imageModeActive, setImageModeActive] = useState(false)
+  const [captureDialogBbox, setCaptureDialogBbox] = useState<number[] | null>(null)
+  const [placingSnippetData, setPlacingSnippetData] = useState<{ base64: string; width: number; height: number } | null>(null)
   // Estado para Undo/Redo
-  const { execute, undo, redo, canUndo, canRedo } = useUndoRedo()
+  const { undo, redo, canUndo, canRedo } = useUndoRedo()
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -106,16 +115,9 @@ export default function ProjectPage() {
 
   const deleteDrawingMutation = useMutation({
     mutationFn: (drawingId: string) => drawingsApi.delete(projectId!, drawingId),
-    onSuccess: async () => {
+    onSuccess: () => {
       refetchDrawings()
       setSelectedDrawingIds([])
-      // Re-renderizar para eliminar la silueta del canvas
-      try {
-        await pagesApi.renderTranslated(projectId!, selectedPage)
-        setImageTimestamp(Date.now())
-      } catch (e) {
-        console.error('Error re-rendering after delete:', e)
-      }
     },
   })
 
@@ -192,17 +194,10 @@ export default function ProjectPage() {
       console.log('Deleting region:', regionId)
       await pagesApi.deleteTextRegion(projectId!, regionId)
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       console.log('Region deleted successfully')
       refetchRegions()
       setSelectedRegionIds(new Set())
-      // Re-renderizar la página traducida para reflejar el borrado
-      try {
-        await pagesApi.renderTranslated(projectId!, selectedPage)
-        setImageTimestamp(Date.now())
-      } catch (e) {
-        console.error('Error re-rendering after delete:', e)
-      }
     },
     onError: (err) => {
       console.error('Error deleting region:', err)
@@ -729,6 +724,7 @@ export default function ProjectPage() {
         <div ref={imageViewerRef} className="flex-1 overflow-auto p-4 bg-gray-100">
           <div className="flex gap-2 mb-4">
             <button
+              data-testid="render-btn"
               onClick={() => renderMutation.mutate()}
               disabled={renderMutation.isPending}
               className="px-3 py-1 text-sm border rounded hover:bg-white disabled:opacity-50"
@@ -736,6 +732,7 @@ export default function ProjectPage() {
               {renderMutation.isPending ? 'Renderizando...' : 'Renderizar'}
             </button>
             <button
+              data-testid="ocr-btn"
               onClick={() => ocrMutation.mutate()}
               disabled={ocrMutation.isPending || !currentPage?.has_original}
               className="px-3 py-1 text-sm border rounded hover:bg-white disabled:opacity-50"
@@ -813,6 +810,7 @@ export default function ProjectPage() {
             )}
             {/* Botón de modo dibujo */}
             <button
+              data-testid="draw-mode-btn"
               onClick={() => {
                 setDrawingMode(!drawingMode)
                 if (!drawingMode) {
@@ -871,7 +869,20 @@ export default function ProjectPage() {
                 onStrokeWidthChange={setDrawingStrokeWidth}
                 fillColor={drawingFillColor}
                 onFillColorChange={setDrawingFillColor}
-                onClose={() => setDrawingMode(false)}
+                imageModeActive={imageModeActive}
+                onImageModeToggle={() => setImageModeActive(!imageModeActive)}
+                onClose={async () => {
+                  setDrawingMode(false)
+                  setImageModeActive(false)
+                  // Componer imagen con dibujos al salir del modo dibujo (preview rápido)
+                  try {
+                    await pagesApi.renderTranslated(projectId!, selectedPage, 450, true)
+                    setImageTimestamp(Date.now())
+                    queryClient.invalidateQueries({ queryKey: ['pages', projectId] })
+                  } catch (e) {
+                    console.error('Error rendering translated with drawings:', e)
+                  }
+                }}
               />
             </div>
           )}
@@ -879,6 +890,7 @@ export default function ProjectPage() {
           {imageUrl ? (
             <div className="relative inline-block">
               <img
+                data-testid="page-image"
                 ref={imageRef}
                 src={imageUrl}
                 alt={`Página ${selectedPage + 1}`}
@@ -1033,6 +1045,33 @@ export default function ProjectPage() {
                       tgt_text: '',
                     }).then(() => refetchRegions())
                   }}
+                  onCaptureArea={(bbox) => {
+                    setCaptureDialogBbox(bbox)
+                  }}
+                  onPlaceSnippet={async (position) => {
+                    if (!placingSnippetData || !projectId) return
+                    createDrawingMutation.mutate({
+                      element_type: 'image',
+                      points: [position.x, position.y, position.x + placingSnippetData.width, position.y + placingSnippetData.height],
+                      stroke_color: '#000000',
+                      stroke_width: 0,
+                      fill_color: null,
+                      text: null,
+                      font_size: 14,
+                      font_family: 'Arial',
+                      text_color: '#000000',
+                      image_data: placingSnippetData.base64,
+                    })
+                    setPlacingSnippetData(null)
+                    setDrawingTool('select')
+                  }}
+                />
+              )}
+              {/* Overlay read-only de dibujos cuando no está en modo dibujo */}
+              {!drawingMode && imageSize.width > 0 && (
+                <DrawingOverlay
+                  drawings={drawings || []}
+                  scale={imageScale}
                 />
               )}
             </div>
@@ -1043,8 +1082,27 @@ export default function ProjectPage() {
           )}
         </div>
 
-        {/* Text regions panel */}
+        {/* Text regions panel / Snippet library panel */}
         <aside className="w-80 border-l bg-white overflow-y-auto">
+          {drawingMode && imageModeActive ? (
+            <SnippetLibraryPanel
+              onSnippetSelect={async (snippetId, transparent) => {
+                try {
+                  const res = await snippetsApi.getBase64(snippetId, transparent)
+                  setPlacingSnippetData(res.data)
+                  setDrawingTool('place_snippet')
+                  toast.success('Haz clic en la página para colocar la imagen')
+                } catch (e) {
+                  console.error('Error loading snippet:', e)
+                  toast.error('Error al cargar la imagen')
+                }
+              }}
+              onCaptureStart={() => {
+                setDrawingTool('capture')
+              }}
+            />
+          ) : (
+          <>
           {/* Filtros OCR del proyecto */}
           <div className="p-4 border-b bg-gray-50">
             <div className="flex items-center justify-between">
@@ -1301,8 +1359,39 @@ export default function ProjectPage() {
               </div>
             ))}
           </div>
+          </>
+          )}
         </aside>
       </div>
+
+      {/* CaptureDialog */}
+      {captureDialogBbox && (
+        <CaptureDialog
+          onConfirm={async (name, removeBg) => {
+            if (!projectId) return
+            try {
+              await snippetsApi.capture({
+                project_id: projectId,
+                page_number: selectedPage,
+                bbox: captureDialogBbox,
+                name,
+                remove_bg: removeBg,
+              })
+              queryClient.invalidateQueries({ queryKey: ['snippets'] })
+              toast.success('Imagen guardada en la librería')
+            } catch (e) {
+              console.error('Error capturing snippet:', e)
+              toast.error('Error al capturar la imagen')
+            }
+            setCaptureDialogBbox(null)
+            setDrawingTool('select')
+          }}
+          onCancel={() => {
+            setCaptureDialogBbox(null)
+            setDrawingTool('select')
+          }}
+        />
+      )}
 
       {/* Region edit panel - solo muestra cuando hay exactamente 1 seleccionada */}
       {selectedRegionIds.size === 1 && (() => {

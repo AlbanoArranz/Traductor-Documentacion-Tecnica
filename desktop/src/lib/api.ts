@@ -141,8 +141,8 @@ export const pagesApi = {
     api.patch<TextRegion>(`/projects/${projectId}/pages/text-regions/${regionId}`, data),
   deleteTextRegion: (projectId: string, regionId: string) =>
     api.delete(`/projects/${projectId}/pages/text-regions/${regionId}`),
-  renderTranslated: (projectId: string, pageNumber: number, dpi = 450) =>
-    api.post(`/projects/${projectId}/pages/${pageNumber}/render-translated?dpi=${dpi}`),
+  renderTranslated: (projectId: string, pageNumber: number, dpi = 450, preview = false) =>
+    api.post(`/projects/${projectId}/pages/${pageNumber}/render-translated?dpi=${dpi}&preview=${preview}`),
   getImageUrl: (projectId: string, pageNumber: number, kind: 'original' | 'translated', dpi = 450) =>
     `${apiBaseUrl}/projects/${projectId}/pages/${pageNumber}/image?kind=${kind}&dpi=${dpi}`,
   getThumbnailUrl: (projectId: string, pageNumber: number, kind: 'original' | 'translated') =>
@@ -225,4 +225,31 @@ export const drawingsApi = {
     api.patch<DrawingElement>(`/projects/${projectId}/pages/drawings/${drawingId}`, data),
   delete: (projectId: string, drawingId: string) =>
     api.delete(`/projects/${projectId}/pages/drawings/${drawingId}`),
+}
+
+export interface Snippet {
+  id: string
+  name: string
+  width: number
+  height: number
+  has_transparent: boolean
+  created_at: string
+}
+
+export const snippetsApi = {
+  list: () => api.get<Snippet[]>('/snippets'),
+  capture: (data: { project_id: string; page_number: number; bbox: number[]; name: string; remove_bg: boolean }) =>
+    api.post<Snippet>('/snippets/capture', data),
+  upload: (file: File, name: string, removeBg: boolean) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('name', name)
+    formData.append('remove_bg', String(removeBg))
+    return api.post<Snippet>('/snippets/upload', formData)
+  },
+  getImageUrl: (snippetId: string, transparent = false) =>
+    `${apiBaseUrl}/snippets/${snippetId}/image?transparent=${transparent}`,
+  getBase64: (snippetId: string, transparent = false) =>
+    api.get<{ base64: string; width: number; height: number }>(`/snippets/${snippetId}/base64?transparent=${transparent}`),
+  delete: (snippetId: string) => api.delete(`/snippets/${snippetId}`),
 }

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#2563eb"/>
+  
+  <!-- Document icon -->
+  <path d="M160 96h192c8.8 0 16 7.2 16 16v288c0 8.8-7.2 16-16 16H160c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 16-16z" fill="white"/>
+  
+  <!-- Text lines -->
+  <rect x="192" y="144" width="128" height="16" rx="8" fill="#2563eb"/>
+  <rect x="192" y="176" width="128" height="16" rx="8" fill="#2563eb"/>
+  <rect x="192" y="208" width="96" height="16" rx="8" fill="#2563eb"/>
+  
+  <!-- Translation arrows -->
+  <path d="M336 320l-24-24-24 24M312 296v48M176 320l24-24 24 24M200 296v48" stroke="white" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- Language indicator -->
+  <text x="256" y="384" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="white" text-anchor="middle">ZH→ES</text>
+</svg>

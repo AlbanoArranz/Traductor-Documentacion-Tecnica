@@ -17,9 +17,10 @@ else:
 PROJECTS_DIR = APP_DATA_DIR / "projects"
 JOBS_DIR = APP_DATA_DIR / "jobs"
 LOGS_DIR = APP_DATA_DIR / "logs"
+SNIPPETS_DIR = APP_DATA_DIR / "snippets"
 
 # Crear directorios si no existen
-for d in [PROJECTS_DIR, JOBS_DIR, LOGS_DIR]:
+for d in [PROJECTS_DIR, JOBS_DIR, LOGS_DIR, SNIPPETS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # Archivo de configuración persistente
@@ -34,12 +35,15 @@ HIGH_DPI = 600
 
 # OCR
 CJK_RATIO_THRESHOLD = 0.2
-DEFAULT_MIN_HAN_RATIO = 0.3
+DEFAULT_MIN_HAN_RATIO = 1.0
 DEFAULT_OCR_ENGINE = "easyocr"
 DEFAULT_OCR_MODE = "basic"
 DEFAULT_MIN_OCR_CONFIDENCE = 0.55
 DEFAULT_OCR_ENABLE_LABEL_RECHECK = True
 DEFAULT_OCR_RECHECK_MAX_REGIONS_PER_PAGE = 200
+
+# InsForge
+DEFAULT_SYNC_ENABLED = True
 
 
 def get_config() -> dict:
@@ -138,6 +142,12 @@ def get_ocr_recheck_max_regions_per_page() -> int:
     if value < 0:
         return 0
     return value
+
+
+def get_sync_enabled() -> bool:
+    """Obtiene si la sincronización con InsForge está habilitada."""
+    config = get_config()
+    return bool(config.get("sync_enabled", DEFAULT_SYNC_ENABLED))
 
 
 def save_config(config: dict):

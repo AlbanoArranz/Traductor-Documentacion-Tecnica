@@ -1,252 +1,133 @@
-# AGENTS.md — NB7X Translator (Windows Desktop)
-
-Piensa en este archivo como un README para agentes de programación: contexto, comandos, invariantes, convenciones **y** cómo debemos configurar Windsurf (Rules/Workflows/Memories/Skills/Hooks) siguiendo la documentación oficial.
-
-> Nota: Windsurf aplica instrucciones de `AGENTS.md` por **alcance de directorio** (root = global; subcarpetas = más específico). :contentReference[oaicite:0]{index=0}
-
+---
+description: Instructions building apps with MCP
+globs: *
+alwaysApply: true
 ---
 
-## Resumen del proyecto
-- App de escritorio Windows 10/11 para traducir **PDFs de imagen** (esquemas eléctricos) de **chino (ZH)** a **español (ES)**.
-- Sustituye **solo** el texto chino por texto en español **en el mismo lugar**, preservando el resto del esquema.
-- UI: Electron + React (Vite). Motor local: Python 3.11 + FastAPI (solo loopback).
+# InsForge SDK Documentation - Overview
 
-## Plataforma objetivo
-- Windows 10/11.
-- Distribución final: instalador `.exe` (NSIS) con electron-builder.
-- Usuario final **no** instala Python/Node (backend embebido con PyInstaller).
+## What is InsForge?
 
----
+Backend-as-a-service (BaaS) platform providing:
 
-## Comandos de desarrollo (DX)
-> Mantén el README alineado con estos comandos.
+- **Database**: PostgreSQL with PostgREST API
+- **Authentication**: Email/password + OAuth (Google, GitHub)
+- **Storage**: File upload/download
+- **AI**: Chat completions and image generation (OpenAI-compatible)
+- **Functions**: Serverless function deployment
+- **Realtime**: WebSocket pub/sub (database + client events)
 
-### Backend (dev)
-- Crear venv e instalar deps: `pip install -r backend/requirements.txt`
-- Ejecutar: `python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000`
-- Health: `GET http://127.0.0.1:8000/health`
+## Installation
 
-### Desktop (dev)
-- Instalar: `cd desktop && npm install`
-- Ejecutar: `npm run dev`
-- En dev, Electron debe:
-  - arrancar el backend Python como proceso hijo **o**
-  - conectarse al backend si ya está levantado (elige uno y documenta; evita mantener ambos si no aportan).
+The following is a step-by-step guide to installing and using the InsForge TypeScript SDK for Web applications. If you are building other types of applications, please refer to:
+- [Swift SDK documentation](/sdks/swift/overview) for iOS, macOS, tvOS, and watchOS applications.
+- [Kotlin SDK documentation](/sdks/kotlin/overview) for Android applications.
+- [REST API documentation](/sdks/rest/overview) for direct HTTP API access.
 
----
+### 🚨 CRITICAL: Follow these steps in order
 
-## Build / Release (Windows)
-### Invariantes de build (no cambiar salvo petición explícita)
-- Backend empaquetado con **PyInstaller en modo onefolder** (preferido).
-- Electron empaquetado con **electron-builder + NSIS**.
-- El backend empaquetado debe copiarse como `extraResources` y ejecutarse desde `process.resourcesPath`.
+### Step 1: Download Template
 
-### Comandos esperados
-- `npm run build:backend` → PyInstaller (onefolder) y copia a `desktop/resources/backend/` (o ruta equivalente).
-- `npm run build:win` → build UI y genera instalador NSIS `.exe`.
+Use the `download-template` MCP tool to create a new project with your backend URL and anon key pre-configured.
 
----
+### Step 2: Install SDK
 
-## Rutas Windows (persistencia)
-- Base de datos y archivos del usuario final en:
-  - `%APPDATA%\\NB7XTranslator\\`
-    - `projects\\<project_id>\\src.pdf`
-    - `projects\\<project_id>\\pages\\000_original_450.png`
-    - `projects\\<project_id>\\pages\\000_translated_450.png`
-    - `projects\\<project_id>\\thumbs\\...`
-    - `projects\\<project_id>\\export\\export_450.pdf`
-    - `jobs\\<job_id>.json`
-    - `logs\\backend.log` y/o `logs\\desktop.log`
-- Reglas:
-  - Soportar espacios y backslashes.
-  - Usar `pathlib` (Python) y `path`/`URL` (Node).
-  - Nunca asumir permisos fuera de `%APPDATA%`.
+```bash
+npm install @insforge/sdk@latest
+```
 
----
+### Step 3: Create SDK Client
 
-## Archivos clave (lógica autoritativa)
-> Si existe una ruta/servicio ya implementado, **extiéndelo**; no dupliques lógica.
+You must create a client instance using `createClient()` with your base URL and anon key:
 
-### Backend (Python)
-- `backend/app/main.py`: arranque FastAPI, routers, `/health`.
-- `backend/app/api/`: endpoints de proyectos/páginas/glosario/export/jobs.
-- `backend/app/services/render_service.py`: render PDF→PNG (PyMuPDF).
-- `backend/app/services/ocr_service.py`: PaddleOCR (detección + filtro CJK + agrupación opcional).
-- `backend/app/services/translate_service.py`: DeepL batch + fallback (sin API key).
-- `backend/app/services/compose_service.py`: composición (PATCH default + INPAINT opcional).
-- `backend/app/services/job_service.py`: jobs background + estado persistente JSON.
-- `backend/app/services/export_service.py`: PDF final desde imágenes (tamaño físico por DPI).
-- `backend/app/db/models.py`: Project, Page, TextRegion, GlossaryEntry.
+```javascript
+import { createClient } from '@insforge/sdk';
 
-### Desktop (Electron)
-- `desktop/src/`: UI React (Home/Proyecto/Glosario/Settings).
-- `desktop/electron/` (o `desktop/src-electron/`): main process (spawn backend, rutas resources, IPC mínimo).
+const client = createClient({
+  baseUrl: 'https://your-app.region.insforge.app',  // Your InsForge backend URL
+  anonKey: 'your-anon-key-here'       // Get this from backend metadata
+});
 
----
+```
 
-## Invariantes críticos (NO romper)
-### Seguridad y red
-- Backend debe bindear **solo** a `127.0.0.1`. Nunca escuchar en `0.0.0.0`.
-- Puerto preferido: **dinámico** (Electron elige puerto libre y lo pasa al backend por env `PORT`).
-- Restringir CORS al origen local de la app.
+**API BASE URL**: Your API base URL is `https://your-app.region.insforge.app`.
 
-### Pipeline de imagen (esquemas)
-- El PDF es **imagen** (no vector): siempre trabajar con render a PNG.
-- DPI por defecto: `450`. DPI alto: `600` (usar heurística por baja confianza o texto pequeño).
-- Todo lo no chino debe permanecer intacto: **solo** se modifica el área de cada bbox de texto chino.
+## Getting Detailed Documentation
 
-### Sustitución de texto: modo por defecto PATCH
-- Default **PATCH**:
-  - Estimar color de fondo a partir del **marco alrededor** del bbox (mediana).
-  - Dibujar rectángulo con padding y escribir texto ES encima.
-- Detector de conflicto “texto sobre líneas”:
-  - Densidad de bordes (Canny) en la ROI del bbox.
-  - Si hay conflicto: forzar padding bajo (≤3px) y mantener PATCH.
-- **INPAINT**:
-  - Solo opcional por caja (nunca por defecto).
-  - Evitar si hay conflicto con líneas/cables.
-- Auto-fit:
-  - 1 línea; si no cabe, wrap a 2 líneas; reducir tamaño.
-  - Si no cabe: `overflow=true` y marcar `needs_review`.
+### 🚨 CRITICAL: Always Fetch Documentation Before Writing Code
 
-### OCR y filtro CJK
-- PaddleOCR `use_angle_cls=True`, `lang="ch"`.
-- Filtrar por ratio CJK (default `>= 0.2`).
-- Guardar bbox en px + bbox normalizado para overlay.
+InsForge provides official SDKs and REST APIs, use them to interact with InsForge services from your application code.
 
-### Glosario (consistencia terminológica)
-- Tabla ZH→ES editable.
-- `locked` por término: si existe, manda sobre MT.
-- Al aplicar glosario: actualizar cajas no bloqueadas (`locked=false`) con mismo `src_text`.
+- [TypeScript SDK](/sdks/typescript/overview) - JavaScript/TypeScript
+- [Swift SDK](/sdks/swift/overview) - iOS, macOS, tvOS, and watchOS
+- [Kotlin SDK](/sdks/kotlin/overview) - Android and Kotlin Multiplatform
+- [REST API](/sdks/rest/overview) - Direct HTTP API access
 
-### Cajetín común (plantilla)
-- Implementar soporte para definir ROI de cajetín (por proyecto).
-- MVP: permitir ignorar o procesar ROI; no implementar detección automática compleja sin petición explícita.
+Before writing or editing any InsForge integration code, you **MUST** call the `fetch-docs` or `fetch-sdk-docs` MCP tool to get the latest SDK documentation. This ensures you have accurate, up-to-date implementation patterns.
 
----
+### Use the InsForge `fetch-docs` MCP tool to get specific SDK documentation:
 
-## Contrato de API (no romper sin migración)
-Endpoints mínimos esperados:
-- `GET /health`
-- `POST /projects`
-- `GET /projects/{id}`
-- `GET /projects/{id}/pages`
-- `POST /projects/{id}/pages/{n}/render-original?dpi=`
-- `POST /projects/{id}/pages/{n}/ocr?dpi=`
-- `GET /projects/{id}/pages/{n}/text-regions`
-- `PATCH /projects/{id}/text-regions/{rid}`
-- `POST /projects/{id}/pages/{n}/render-translated?dpi=`
-- `GET /projects/{id}/pages/{n}/image?kind=original|translated&dpi=`
-- `GET /projects/{id}/pages/{n}/thumbnail?kind=original|translated`
-- `GET/PUT /projects/{id}/glossary`
-- `POST /projects/{id}/glossary/apply`
-- `POST /projects/{id}/render-all/async`
-- `GET /projects/{id}/jobs/{job_id}`
-- `POST /projects/{id}/export/pdf`
-- `GET /projects/{id}/export/pdf/file`
+Available documentation types:
 
----
+- `"instructions"` - Essential backend setup (START HERE)
+- `"real-time"` - Real-time pub/sub (database + client events) via WebSockets
+- `"db-sdk-typescript"` - Database operations with TypeScript SDK
+- **Authentication** - Choose based on implementation:
+  - `"auth-sdk-typescript"` - TypeScript SDK methods for custom auth flows
+  - `"auth-components-react"` - Pre-built auth UI for React+Vite (singlepage App)
+  - `"auth-components-react-router"` - Pre-built auth UI for React(Vite+React Router) (Multipage App)
+  - `"auth-components-nextjs"` - Pre-built auth UI for Nextjs (SSR App)
+- `"storage-sdk"` - File storage operations
+- `"functions-sdk"` - Serverless functions invocation
+- `"ai-integration-sdk"` - AI chat and image generation
+- `"real-time"` - Real-time pub/sub (database + client events) via WebSockets
+- `"deployment"` - Deploy frontend applications via MCP tool
 
-# Windsurf DX: Rules, Workflows, Memories, Skills, Hooks (OBLIGATORIO en este repo)
+These documentations are mostly for TypeScript SDK. For other languages, you can also use `fetch-sdk-docs` mcp tool to get specific documentation.
 
-## 1) Rules (workspace)
-- Crear y versionar reglas en: `.windsurf/rules/` (en root o subcarpetas según alcance). :contentReference[oaicite:1]{index=1}
-- Mantener reglas:
-  - **cortas, específicas y accionables** (evitar vaguedad). :contentReference[oaicite:2]{index=2}
-  - sin redundancia con `AGENTS.md` (AGENTS = por directorio; Rules = activación por “Always/Glob/Manual/Model decision”). :contentReference[oaicite:3]{index=3}
-- Activación: preferir `Glob` por carpeta (`backend/**`, `desktop/**`) y `Manual` para reglas raras. :contentReference[oaicite:4]{index=4}
+### Use the InsForge `fetch-sdk-docs` MCP tool to get specific SDK documentation
 
-**Reglas mínimas a crear (archivos separados):**
-- `.windsurf/rules/backend-python.md` → estilo Python, FastAPI, typing, logging, seguridad loopback, pathlib.
-- `.windsurf/rules/desktop-electron.md` → recursos `process.resourcesPath`, spawn backend, puertos, rutas Windows.
-- `.windsurf/rules/build-release.md` → PyInstaller onefolder + electron-builder NSIS + no romper scripts.
-- `.windsurf/rules/security.md` → no abrir red, no secretos en repo, validar rutas.
+You can fetch sdk documentation using the `fetch-sdk-docs` MCP tool with specific feature type and language.
 
-> Nota: crea estas rules como parte del setup inicial del repo.
+Available feature types:
+- db - Database operations
+- storage - File storage operations
+- functions - Serverless functions invocation
+- auth - User authentication
+- ai - AI chat and image generation
+- realtime - Real-time pub/sub (database + client events) via WebSockets
 
-## 2) Workflows (slash commands)
-- Crear workflows en `.windsurf/workflows/` (descubiertos en workspace y subdirectorios; invocables con `/nombre`). :contentReference[oaicite:5]{index=5}
-- Los workflows deben ser repetibles y step-by-step; permiten llamar otros workflows desde dentro. :contentReference[oaicite:6]{index=6}
+Available languages:
+- typescript - JavaScript/TypeScript SDK
+- swift - Swift SDK (for iOS, macOS, tvOS, and watchOS)
+- kotlin - Kotlin SDK (for Android and JVM applications)
+- rest-api - REST API
 
-**Workflows mínimos a crear:**
-- `.windsurf/workflows/smoke-test.md` → ejecuta el smoke test (carga PDF demo, render, OCR, compose, export).
-- `.windsurf/workflows/build-backend.md` → empaqueta backend con PyInstaller y copia a resources.
-- `.windsurf/workflows/build-installer-win.md` → build completo del instalador NSIS.
-- `.windsurf/workflows/release-checklist.md` → checklist de versionado, changelog, artefactos, verificación.
-- `.windsurf/workflows/add-skill.md` → guía para crear una Skill usando `skill-master`.
+## When to Use SDK vs MCP Tools
 
-## 3) Skills (carpetas invocables)
-- Skills se guardan como carpetas con `SKILL.md` y recursos adicionales en `.windsurf/skills/<skill-name>/`. :contentReference[oaicite:7]{index=7}
-- Reglas:
-  - nombre en minúsculas con números y guiones.
-  - `SKILL.md` con YAML frontmatter: `name` y `description` obligatorios. :contentReference[oaicite:8]{index=8}
-  - Incluir plantillas, checklists, scripts y ejemplos dentro de la carpeta. :contentReference[oaicite:9]{index=9}
+### Always SDK for Application Logic:
 
-**Skill-master (obligatorio usarlo)**
-- Este repo ya tiene `skill-master` para crear skills: úsalo como herramienta estándar.
-- Política: no escribir skills “a mano” si `skill-master` puede generarlas (consistencia y ahorro de tiempo).
+- Authentication (register, login, logout, profiles)
+- Database CRUD (select, insert, update, delete)
+- Storage operations (upload, download files)
+- AI operations (chat, image generation)
+- Serverless function invocation
 
-**Skills mínimas a crear (con skill-master):**
-- `pipeline-page-translate` → “de PNG a traducida”: render→OCR→DeepL/glosario→compose→persist flags.
-- `glossary-management` → import/export CSV + aplicar glosario + estrategia terminológica.
-- `windows-packaging` → PyInstaller onefolder + electron-builder + recursos + troubleshooting Paddle.
-- `roi-cajetin-setup` → configurar ROI cajetín y pruebas.
-- `debug-ocr-quality` → heurísticas DPI 600, thresholds, agrupación de cajas.
-- `gestionar-repo-git-github` → sincronización segura Git/GitHub, limpieza de archivos grandes y verificación de .gitignore.
+### Use MCP Tools for Infrastructure:
 
-## 4) Memories (Windsurf Customizations)
-- Las Memories se gestionan en la UI de Windsurf (Customizations) y son por workspace; Cascade puede autogenerarlas o puedes pedir “create a memory of …”. :contentReference[oaicite:10]{index=10}
-- Política del repo:
-  - Guardar decisiones **duraderas** en el repo (AGENTS/Rules/Skills/Workflows).
-  - Usar Memories solo para “preferencias operativas” o recordatorios del equipo (no como única fuente de verdad).
+- Project scaffolding (`download-template`) - Download starter templates with InsForge integration
+- Backend setup and metadata (`get-backend-metadata`)
+- Database schema management (`run-raw-sql`, `get-table-schema`)
+- Storage bucket creation (`create-bucket`, `list-buckets`, `delete-bucket`)
+- Serverless function deployment (`create-function`, `update-function`, `delete-function`)
+- Frontend deployment (`create-deployment`) - Deploy frontend apps to InsForge hosting
 
-**Memories recomendadas a crear en el workspace:**
-- “Este proyecto es Windows Desktop con backend local loopback; no abrir red.”
-- “Default composition = PATCH; INPAINT solo manual por caja.”
-- “Build distribuible: PyInstaller onefolder + electron-builder NSIS; backend dentro de resources.”
-- “Datos en %APPDATA%\\NB7XTranslator\\; rutas deben soportar espacios.”
+## Important Notes
 
-## 5) Hooks (workspace)
-- Hooks permiten ejecutar comandos shell en eventos de Cascade (pre/post read/write/run/etc). :contentReference[oaicite:11]{index=11}
-- Configuración por workspace (versionada): `.windsurf/hooks.json` en la raíz del workspace. :contentReference[oaicite:12]{index=12}
-- Estructura: JSON con `hooks` y eventos; `show_output: true` en desarrollo. :contentReference[oaicite:13]{index=13}
-- Pre-hooks pueden **bloquear** acciones (exit code `2`). :contentReference[oaicite:14]{index=14}
-
-**Hooks mínimos a añadir (en `.windsurf/hooks.json` + scripts en `.windsurf/scripts/`):**
-- `post_write_code`:
-  - backend: ejecutar `ruff`/`black` o al menos `python -m compileall backend` (rápido).
-  - desktop: `npm run lint` (si existe) o `npm run typecheck`.
-- `pre_run_command`:
-  - bloquear comandos peligrosos por defecto (p.ej. `rm -rf`, `del /s`, etc.) salvo whitelist.
-- `post_cascade_response`:
-  - log simple a `.windsurf/logs/cascade.log` para auditoría local (opcional, ligero).
-
-> Mantén hooks **rápidos** (evitar tests largos en cada write). Para QA pesada usa workflows.
-
----
-
-## Testing (smoke test)
-Tras cambios, ejecutar un smoke test manual rápido:
-1) Abrir PDF (crear proyecto).
-2) Render página 0 (450 DPI).
-3) OCR página 0 (ver cajas).
-4) Traducir y render traducida (PATCH).
-5) Editar 1 caja (tgt_text), bloquearla, re-render página.
-6) Exportar PDF final y abrirlo.
-7) Probar “Procesar todo” (job async) y verificar progreso y finalización.
-
----
-
-## Higiene del repo (reglas de cambios)
-- Evitar cambios innecesarios fuera del alcance.
-- No crear sistemas alternativos de build si ya existe PyInstaller + electron-builder, salvo petición explícita.
-- No sobrescribir `.env` ni secretos (DeepL API key se guarda en storage del usuario).
-- No dejar funciones/componentes/variables sin usar.
-- Reutilizar patrones existentes (servicios y routers) en lugar de duplicar lógica.
-
----
-
-## Notas Windows
-- Paddle/PaddleOCR en Windows puede requerir VC++ Redistributable: si OCR falla, mostrar aviso claro en UI (no crashear silenciosamente).
-- En producción usar `process.resourcesPath` para localizar backend y assets.
-
+- For auth: use `auth-sdk` for custom UI, or framework-specific components for pre-built UI
+- SDK returns `{data, error}` structure for all operations
+- Database inserts require array format: `[{...}]`
+- Serverless functions have single endpoint (no subpaths)
+- Storage: Upload files to buckets, store URLs in database
+- AI operations are OpenAI-compatible
+- **EXTRA IMPORTANT**: Use Tailwind CSS 3.4 (do not upgrade to v4). Lock these dependencies in `package.json`

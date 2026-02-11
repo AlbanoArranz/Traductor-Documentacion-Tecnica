@@ -32,14 +32,6 @@ desktop/resources/backend/
 # Vite / misc caches
 .vite/
 
-# Test coverage
-coverage/
-desktop/coverage/
-**/coverage/
-lcov-report/
-**/lcov-report/
-coverage-final.json
-
 # Logs
 *.log
 backend/app.log
@@ -58,6 +50,17 @@ Thumbs.db
 
 # Local app data (should never be committed)
 # (Data is stored in %APPDATA%\NB7XTranslator, not inside repo)
+
+# Test artifacts
+desktop/coverage/
+desktop/playwright-report/
+desktop/test-results/
+
+# Temp / test files at root
+*.pdf
+ping-downloaded.txt
+test-downloaded.txt
+test.txt
 
 # Windsurf
 .windsurf/logs/

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'react-hot-toast'
 import { settingsApi, OcrRegionFilter } from '../lib/api'
 
 export default function SettingsPage() {
@@ -68,10 +69,10 @@ export default function SettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
-      alert('Configuración guardada')
+      toast.success('Configuración guardada')
     },
     onError: () => {
-      alert('Error al guardar configuración')
+      toast.error('Error al guardar configuración')
     },
   })
 

@@ -1,5 +1,5 @@
 # Frontend Dockerfile
-FROM node:20-alpine as builder
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -10,14 +10,12 @@ RUN npm install
 # Copiar código del frontend
 COPY desktop/ .
 
-# Build para producción con VITE_API_URL
-ARG VITE_API_URL
-ENV VITE_API_URL=${VITE_API_URL}
+# Build para producción
 RUN npm run build
 
 # Servir con nginx
 FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=0 /app/dist /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

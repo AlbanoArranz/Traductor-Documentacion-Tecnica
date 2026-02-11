@@ -4,6 +4,8 @@ Servicio de jobs asíncronos.
 
 import json
 import uuid
+import tempfile
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -15,38 +17,61 @@ from ..services import render_service, ocr_service, translate_service, compose_s
 
 
 def _save_job(job: Job):
-    """Guarda el estado del job a disco."""
+    """Guarda el estado del job a disco (escritura atómica con os.replace)."""
     job_path = JOBS_DIR / f"{job.id}.json"
-    with open(job_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "id": job.id,
-            "project_id": job.project_id,
-            "job_type": job.job_type,
-            "status": job.status,
-            "progress": job.progress,
-            "current_step": job.current_step,
-            "error": job.error,
-            "created_at": job.created_at.isoformat(),
-        }, f, ensure_ascii=False, indent=2)
+    data = json.dumps({
+        "id": job.id,
+        "project_id": job.project_id,
+        "job_type": job.job_type,
+        "status": job.status,
+        "progress": job.progress,
+        "current_step": job.current_step,
+        "error": job.error,
+        "created_at": job.created_at.isoformat(),
+    }, ensure_ascii=False, indent=2)
+    fd, tmp_path = tempfile.mkstemp(dir=str(JOBS_DIR), suffix=".tmp")
+    try:
+        os.write(fd, data.encode("utf-8"))
+        os.close(fd)
+        fd = -1
+        os.replace(tmp_path, str(job_path))
+    except Exception:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
 
 def _load_job(job_id: str) -> Optional[Job]:
-    """Carga un job desde disco."""
+    """Carga un job desde disco (con reintentos para race conditions)."""
     job_path = JOBS_DIR / f"{job_id}.json"
-    if not job_path.exists():
-        return None
-    with open(job_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        return Job(
-            id=data["id"],
-            project_id=data["project_id"],
-            job_type=data["job_type"],
-            status=data["status"],
-            progress=data["progress"],
-            current_step=data.get("current_step"),
-            error=data.get("error"),
-            created_at=datetime.fromisoformat(data["created_at"]),
-        )
+    for attempt in range(5):
+        try:
+            with open(job_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return Job(
+                id=data["id"],
+                project_id=data["project_id"],
+                job_type=data["job_type"],
+                status=data["status"],
+                progress=data["progress"],
+                current_step=data.get("current_step"),
+                error=data.get("error"),
+                created_at=datetime.fromisoformat(data["created_at"]),
+            )
+        except FileNotFoundError:
+            if attempt == 0:
+                return None
+            import time
+            time.sleep(0.05)
+        except (json.JSONDecodeError, KeyError, ValueError, OSError):
+            import time
+            time.sleep(0.05)
+    return None
 
 
 def create_job(project_id: str, job_type: str) -> Job:

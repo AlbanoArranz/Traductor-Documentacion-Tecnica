@@ -2,13 +2,32 @@
 API endpoints para glosario de un proyecto.
 """
 
+import asyncio
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..db.repository import projects_repo, glossary_repo, text_regions_repo, global_glossary_repo
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+async def _sync_glossary_async(project_id: str):
+    """Sincroniza el glosario de un proyecto con InsForge en background."""
+    try:
+        from ..services.sync_service import get_sync_service
+        from ..db.repository import GlossaryRepository
+        sync = get_sync_service()
+        glossary_repo = GlossaryRepository()
+        entries = glossary_repo.list_by_project(project_id)
+        for entry in entries:
+            sync.sync_glossary_entry(entry)
+        logger.info(f"Glosario sincronizado con InsForge: {project_id}")
+    except Exception as e:
+        logger.error(f"Error sincronizando glosario {project_id} con InsForge: {e}")
 
 
 class GlossaryEntry(BaseModel):
@@ -68,6 +87,9 @@ async def update_glossary(project_id: str, glossary: GlossaryResponse):
             )
     
     glossary_repo.replace_for_project(project_id, glossary.entries)
+    
+    # Sincronizar con InsForge en background
+    asyncio.create_task(_sync_glossary_async(project_id))
     
     return {"status": "ok"}
 

@@ -1,4 +1,4 @@
-import { MousePointer2, Minus, Square, Circle, Type, X, Route } from 'lucide-react'
+import { MousePointer2, Minus, Square, Circle, Type, X, Route, ImagePlus, Scissors } from 'lucide-react'
 import type { DrawingTool } from './DrawingCanvas'
 
 interface DrawingToolbarProps {
@@ -11,6 +11,8 @@ interface DrawingToolbarProps {
   fillColor: string | null
   onFillColorChange: (color: string | null) => void
   onClose: () => void
+  imageModeActive: boolean
+  onImageModeToggle: () => void
 }
 
 export function DrawingToolbar({
@@ -23,6 +25,8 @@ export function DrawingToolbar({
   fillColor,
   onFillColorChange,
   onClose,
+  imageModeActive,
+  onImageModeToggle,
 }: DrawingToolbarProps) {
   const tools: { id: DrawingTool; icon: React.ReactNode; label: string }[] = [
     { id: 'select', icon: <MousePointer2 size={18} />, label: 'Seleccionar' },
@@ -31,6 +35,7 @@ export function DrawingToolbar({
     { id: 'rect', icon: <Square size={18} />, label: 'Rectángulo' },
     { id: 'circle', icon: <Circle size={18} />, label: 'Círculo' },
     { id: 'add_text_box', icon: <Type size={18} />, label: 'Añadir Caja' },
+    { id: 'capture', icon: <Scissors size={18} />, label: 'Capturar zona' },
   ]
 
   const colors = ['#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#FFFFFF']
@@ -116,6 +121,19 @@ export function DrawingToolbar({
           />
         )}
       </div>
+
+      <div className="w-px h-6 bg-gray-300 mx-1" />
+
+      <button
+        onClick={onImageModeToggle}
+        className={`p-2 rounded hover:bg-gray-100 flex items-center gap-1 text-xs ${
+          imageModeActive ? 'bg-primary-100 text-primary-700' : 'text-gray-600'
+        }`}
+        title="Librería de imágenes"
+      >
+        <ImagePlus size={18} />
+        Imagen
+      </button>
 
       <div className="flex-1" />
 

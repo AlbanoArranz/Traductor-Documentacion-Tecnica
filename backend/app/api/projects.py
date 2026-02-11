@@ -3,6 +3,8 @@ API endpoints para proyectos.
 """
 
 import uuid
+import asyncio
+import logging
 import shutil
 from pathlib import Path
 from typing import List, Optional
@@ -17,7 +19,20 @@ from ..config import PROJECTS_DIR
 from ..db.models import Project, ProjectStatus, DocumentType
 from ..db.repository import projects_repo
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+async def _sync_project_async(project: Project):
+    """Sincroniza un proyecto con InsForge en background (fire and forget)."""
+    try:
+        from ..services.sync_service import get_sync_service
+        sync = get_sync_service()
+        sync.sync_project(project)
+        logger.info(f"Proyecto sincronizado con InsForge: {project.name}")
+    except Exception as e:
+        logger.error(f"Error sincronizando proyecto {project.name} con InsForge: {e}")
 
 
 def _normalize_rotation(rotation: int) -> int:
@@ -105,7 +120,20 @@ async def create_project(
         page_count=page_count,
         document_type=doc_type,
     )
-    
+
+    # Sincronizar con InsForge en background (fire and forget)
+    asyncio.create_task(_sync_project_async(project))
+
+    # Generar solo thumbnails (150 DPI) — rápido (~2-5s para 46 págs)
+    # El render a alta resolución se hace bajo demanda al abrir cada página
+    from ..services.render_service import render_thumbnails_only
+    try:
+        render_thumbnails_only(pdf_path, project_dir)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to render thumbnails for project {project_id}: {e}")
+
     return ProjectResponse(
         id=project.id,
         name=project.name,
@@ -231,4 +259,9 @@ async def update_project_ocr_filters(project_id: str, filters: dict):
             raise HTTPException(status_code=400, detail="Each filter must have 'mode' and 'pattern'")
     
     projects_repo.update(project_id, ocr_region_filters=ocr_filters)
+    
+    # Sincronizar con InsForge en background
+    project = projects_repo.get(project_id)
+    asyncio.create_task(_sync_project_async(project))
+    
     return {"status": "ok", "ocr_region_filters": ocr_filters}

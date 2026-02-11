@@ -8,8 +8,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-from ..config import PROJECTS_DIR, JOBS_DIR
-from .models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job, DocumentType, DrawingElement
+from ..config import PROJECTS_DIR, JOBS_DIR, SNIPPETS_DIR
+from .models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job, DocumentType, DrawingElement, Snippet
 from .global_glossary_repository import GlobalGlossaryRepository
 
 
@@ -406,6 +406,83 @@ class DrawingsRepository:
         return False
 
 
+class SnippetsRepository:
+    """Repositorio de snippets de imagen (librería global)."""
+    
+    INDEX_FILE = SNIPPETS_DIR / "index.json"
+    
+    def __init__(self):
+        self._cache: Dict[str, Snippet] = {}
+        self._load()
+    
+    def _load(self):
+        if self.INDEX_FILE.exists():
+            try:
+                with open(self.INDEX_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for item in data:
+                    created_at = item.get("created_at")
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at)
+                    else:
+                        created_at = datetime.now()
+                    self._cache[item["id"]] = Snippet(
+                        id=item["id"],
+                        name=item["name"],
+                        width=item["width"],
+                        height=item["height"],
+                        has_transparent=item.get("has_transparent", False),
+                        created_at=created_at,
+                    )
+            except Exception:
+                self._cache = {}
+    
+    def _save(self):
+        with open(self.INDEX_FILE, "w", encoding="utf-8") as f:
+            json.dump([
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    "width": s.width,
+                    "height": s.height,
+                    "has_transparent": s.has_transparent,
+                    "created_at": s.created_at.isoformat(),
+                }
+                for s in self._cache.values()
+            ], f, ensure_ascii=False, indent=2)
+    
+    def create(self, name: str, width: int, height: int, has_transparent: bool = False) -> Snippet:
+        snippet_id = str(uuid.uuid4())
+        snippet = Snippet(
+            id=snippet_id,
+            name=name,
+            width=width,
+            height=height,
+            has_transparent=has_transparent,
+        )
+        self._cache[snippet_id] = snippet
+        self._save()
+        return snippet
+    
+    def get(self, snippet_id: str) -> Optional[Snippet]:
+        return self._cache.get(snippet_id)
+    
+    def list_all(self) -> List[Snippet]:
+        return sorted(self._cache.values(), key=lambda s: s.created_at, reverse=True)
+    
+    def delete(self, snippet_id: str) -> bool:
+        if snippet_id in self._cache:
+            del self._cache[snippet_id]
+            self._save()
+            # Eliminar archivos de imagen
+            for suffix in [".png", "_nobg.png"]:
+                img_path = SNIPPETS_DIR / f"{snippet_id}{suffix}"
+                if img_path.exists():
+                    img_path.unlink()
+            return True
+        return False
+
+
 # Instancias singleton
 projects_repo = ProjectsRepository()
 pages_repo = PagesRepository()
@@ -413,3 +490,4 @@ text_regions_repo = TextRegionsRepository()
 glossary_repo = GlossaryRepository()
 global_glossary_repo = GlobalGlossaryRepository()
 drawings_repo = DrawingsRepository()
+snippets_repo = SnippetsRepository()

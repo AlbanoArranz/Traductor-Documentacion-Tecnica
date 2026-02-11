@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import './index.css'
 import { setApiBaseUrl } from './lib/api'
+import { ToastProvider } from './components/ToastProvider'
 
 const queryClient = new (QueryClient as any)({
   defaultOptions: {
@@ -17,25 +18,26 @@ const queryClient = new (QueryClient as any)({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <ToastProvider>
+        <App />
+      </ToastProvider>
     </QueryClientProvider>
   </React.StrictMode>
 )
 
-// Inicializar baseURL dinámico para producción (Electron o Web)
+// Inicializar baseURL dinámico para dev (Vite) y producción (Electron) sin bloquear el render
 ;(async () => {
   try {
-    const webApiUrl = import.meta.env.VITE_API_URL
-    
-    if (webApiUrl) {
-      // Modo Web: usar URL desde variable de entorno
-      setApiBaseUrl(webApiUrl)
-    } else if (window.electronAPI?.getBackendUrl) {
-      // Modo Desktop (Electron): usar API de Electron
+    const envUrl = (import.meta as any)?.env?.VITE_API_BASE_URL
+    if (typeof envUrl === 'string' && envUrl.trim()) {
+      setApiBaseUrl(envUrl)
+      return
+    }
+    if (window.electronAPI?.getBackendUrl) {
       const url = await window.electronAPI.getBackendUrl()
       if (url) setApiBaseUrl(url)
     }
   } catch (e) {
-    console.error('Could not initialize backend URL:', e)
+    console.error('Could not initialize backend URL from Electron:', e)
   }
 })()

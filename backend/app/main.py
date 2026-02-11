@@ -15,7 +15,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import projects, pages, glossary, export, jobs, settings, global_glossary, drawings
+from .api import projects, pages, glossary, export, jobs, settings, global_glossary, drawings, snippets
 
 # Configuración CORS desde variables de entorno (para Docker/VPS)
 ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "")
@@ -53,6 +53,7 @@ app.include_router(export.router, prefix="/projects/{project_id}/export", tags=[
 app.include_router(jobs.router, prefix="/projects/{project_id}/jobs", tags=["jobs"])
 app.include_router(settings.router, prefix="/settings", tags=["settings"])
 app.include_router(drawings.router, prefix="/projects/{project_id}/pages", tags=["drawings"])
+app.include_router(snippets.router, prefix="/snippets", tags=["snippets"])
 
 
 @app.get("/health")

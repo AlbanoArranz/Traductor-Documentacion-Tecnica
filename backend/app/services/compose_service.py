@@ -5,6 +5,7 @@ Modo default: PATCH (rectángulo de color de fondo + texto).
 
 from pathlib import Path
 from typing import List
+from functools import lru_cache
 import base64
 import io
 
@@ -14,22 +15,35 @@ from PIL import Image, ImageDraw, ImageFont
 from ..db.models import TextRegion, DrawingElement
 
 
-def _estimate_background_color(img: Image.Image, bbox: List[float], margin: int = 5) -> tuple:
+@lru_cache(maxsize=64)
+def _resolve_font(font_family: str, size: int) -> ImageFont.FreeTypeFont:
+    """Resuelve y cachea fuentes para evitar re-abrir archivos .ttf repetidamente."""
+    font_names = [f"{font_family}.ttf", f"{font_family.lower()}.ttf", "arial.ttf", "segoeui.ttf", "tahoma.ttf"]
+    for font_name in font_names:
+        try:
+            return ImageFont.truetype(font_name, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def _estimate_background_color(img_array: np.ndarray, bbox: List[float], margin: int = 5) -> tuple:
     """
     Estima el color de fondo alrededor del bbox.
     Para esquemas eléctricos, filtra colores de líneas y usa solo colores claros.
+    Recibe img_array (numpy) pre-computado para evitar conversiones repetidas.
     """
     x1, y1, x2, y2 = [int(v) for v in bbox]
+    img_h, img_w = img_array.shape[:2]
     
     # Expandir bbox para obtener el marco
     x1_outer = max(0, x1 - margin)
     y1_outer = max(0, y1 - margin)
-    x2_outer = min(img.width, x2 + margin)
-    y2_outer = min(img.height, y2 + margin)
+    x2_outer = min(img_w, x2 + margin)
+    y2_outer = min(img_h, y2 + margin)
     
     # Obtener píxeles del marco (excluyendo el interior)
     pixels = []
-    img_array = np.array(img)
     
     # Top strip
     if y1_outer < y1:
@@ -86,32 +100,14 @@ def _fit_text(
     Returns:
         (font, lines, overflow, line_height)
     """
-    # Intentar encontrar la fuente solicitada
-    font = None
-    font_names = [f"{font_family}.ttf", f"{font_family.lower()}.ttf", "arial.ttf", "segoeui.ttf", "tahoma.ttf"]
-    
     # Si hay tamaño fijo, usarlo directamente
     if fixed_font_size:
-        for font_name in font_names:
-            try:
-                font = ImageFont.truetype(font_name, fixed_font_size)
-                break
-            except:
-                continue
-        if font is None:
-            font = ImageFont.load_default()
+        font = _resolve_font(font_family, fixed_font_size)
         return font, [text], False, fixed_font_size
     
     # Auto-ajustar tamaño
     for size in range(max_font_size, min_font_size - 1, -1):
-        for font_name in font_names:
-            try:
-                font = ImageFont.truetype(font_name, size)
-                break
-            except:
-                continue
-        if font is None:
-            font = ImageFont.load_default()
+        font = _resolve_font(font_family, size)
         
         # Verificar si cabe en una línea
         text_bbox = draw.textbbox((0, 0), text, font=font)
@@ -143,15 +139,7 @@ def _fit_text(
                     return font, [line1, line2], False, size
     
     # Si nada cabe, usar el tamaño mínimo y marcar overflow
-    for font_name in font_names:
-        try:
-            font = ImageFont.truetype(font_name, min_font_size)
-            break
-        except:
-            continue
-    if font is None:
-        font = ImageFont.load_default()
-    
+    font = _resolve_font(font_family, min_font_size)
     return font, [text], True, min_font_size
 
 
@@ -178,6 +166,7 @@ def compose_page(
     # Cargar imagen original
     img = Image.open(original_path).convert("RGB")
     draw = ImageDraw.Draw(img)
+    img_array = np.array(img)  # Pre-computar una sola vez para todas las regiones
     
     # Ordenar regiones por render_order (menor = se dibuja primero/debajo)
     sorted_regions = sorted(regions, key=lambda r: getattr(r, 'render_order', 0))
@@ -201,7 +190,7 @@ def compose_page(
                 bg_color = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
             else:
                 # Estimar color de fondo automáticamente
-                bg_color = _estimate_background_color(img, region.bbox)
+                bg_color = _estimate_background_color(img_array, region.bbox)
             
             # Determinar color de texto
             text_color = (0, 0, 0)  # Default negro
@@ -266,13 +255,13 @@ def compose_page(
     output_path = pages_dir / f"{page_number:03d}_translated_{dpi}.png"
     img.save(output_path)
     
-    # Thumbnail
+    # Thumbnail (JPEG para mayor velocidad)
     thumbs_dir = output_dir / "thumbs"
     thumbs_dir.mkdir(parents=True, exist_ok=True)
-    thumb_path = thumbs_dir / f"{page_number:03d}_translated.png"
+    thumb_path = thumbs_dir / f"{page_number:03d}_translated.jpg"
     thumb = img.copy()
     thumb.thumbnail((300, 400))
-    thumb.save(thumb_path)
+    thumb.save(thumb_path, "JPEG", quality=85)
     
     return output_path
 
@@ -329,16 +318,7 @@ def _draw_drawing_elements(img: Image.Image, draw: ImageDraw.ImageDraw, drawings
         elif elem.element_type == 'text':
             if len(elem.points) >= 2 and elem.text:
                 x, y = elem.points[:2]
-                font = None
-                font_names = [f"{elem.font_family}.ttf", f"{elem.font_family.lower()}.ttf", "arial.ttf", "segoeui.ttf"]
-                for font_name in font_names:
-                    try:
-                        font = ImageFont.truetype(font_name, elem.font_size)
-                        break
-                    except:
-                        continue
-                if font is None:
-                    font = ImageFont.load_default()
+                font = _resolve_font(elem.font_family or 'Arial', elem.font_size or 14)
                 draw.text((x, y), elem.text, fill=elem.text_color, font=font)
         
         elif elem.element_type == 'image':
@@ -381,6 +361,7 @@ def compose_page_with_drawings(
     # Cargar imagen original
     img = Image.open(original_path).convert("RGB")
     draw = ImageDraw.Draw(img)
+    img_array = np.array(img)  # Pre-computar una sola vez para todas las regiones
     
     # Ordenar regiones por render_order (menor = se dibuja primero/debajo)
     sorted_regions = sorted(regions, key=lambda r: getattr(r, 'render_order', 0))
@@ -402,7 +383,7 @@ def compose_page_with_drawings(
                 hex_color = region.bg_color.lstrip('#')
                 bg_color = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
             else:
-                bg_color = _estimate_background_color(img, region.bbox)
+                bg_color = _estimate_background_color(img_array, region.bbox)
             
             # Determinar color de texto
             text_color = (0, 0, 0)
@@ -464,12 +445,12 @@ def compose_page_with_drawings(
     output_path = pages_dir / f"{page_number:03d}_translated_{dpi}.png"
     img.save(output_path)
     
-    # Thumbnail
+    # Thumbnail (JPEG para mayor velocidad)
     thumbs_dir = output_dir / "thumbs"
     thumbs_dir.mkdir(parents=True, exist_ok=True)
-    thumb_path = thumbs_dir / f"{page_number:03d}_translated.png"
+    thumb_path = thumbs_dir / f"{page_number:03d}_translated.jpg"
     thumb = img.copy()
     thumb.thumbnail((300, 400))
-    thumb.save(thumb_path)
+    thumb.save(thumb_path, "JPEG", quality=85)
     
     return output_path

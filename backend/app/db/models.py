@@ -103,3 +103,14 @@ class DrawingElement:
     text_color: str = "#000000"
     image_data: Optional[str] = None  # base64 PNG para type='image'
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class Snippet:
+    """Imagen recortada guardada en la librería global."""
+    id: str
+    name: str
+    width: int
+    height: int
+    has_transparent: bool = False
+    created_at: datetime = field(default_factory=datetime.now)

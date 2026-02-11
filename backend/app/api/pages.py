@@ -139,6 +139,9 @@ async def run_ocr(
             key = (f.get("mode"), f.get("pattern"), f.get("case_sensitive"))
             if key not in seen_patterns:
                 custom_filters.append(f)
+    # Si custom_filters está vacío, usar None para que ocr_service use filtros globales
+    if not custom_filters:
+        custom_filters = None
     
     # Ejecutar OCR con filtros personalizados y tipo de documento
     try:
@@ -341,17 +344,47 @@ async def render_translated(
     project_id: str,
     page_number: int,
     dpi: int = Query(default=DEFAULT_DPI),
+    preview: bool = Query(default=False),
 ):
-    """Renderiza la página traducida (compone texto ES sobre imagen)."""
+    """Renderiza la página traducida (compone texto ES sobre imagen).
+    Si preview=True, usa DPI bajo (150) para previsualización rápida."""
     project = projects_repo.get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    project_dir = PROJECTS_DIR / project_id
-    original_path = project_dir / "pages" / f"{page_number:03d}_original_{dpi}.png"
+    # En modo preview usar DPI bajo para velocidad
+    render_dpi = 150 if preview else dpi
     
+    project_dir = PROJECTS_DIR / project_id
+    original_path = project_dir / "pages" / f"{page_number:03d}_original_{render_dpi}.png"
+    
+    # Si no existe la imagen al DPI solicitado, renderizarla bajo demanda
     if not original_path.exists():
-        raise HTTPException(status_code=400, detail="Original image not rendered yet")
+        pdf_path = project_dir / "src.pdf"
+        if preview:
+            # Para preview: intentar redimensionar desde la imagen full si existe
+            original_path_full = project_dir / "pages" / f"{page_number:03d}_original_{dpi}.png"
+            if original_path_full.exists():
+                from PIL import Image
+                img_full = Image.open(original_path_full)
+                scale_factor = render_dpi / dpi
+                new_size = (int(img_full.width * scale_factor), int(img_full.height * scale_factor))
+                img_preview = img_full.resize(new_size, Image.Resampling.LANCZOS)
+                pages_dir = project_dir / "pages"
+                pages_dir.mkdir(parents=True, exist_ok=True)
+                img_preview.save(str(original_path))
+            elif pdf_path.exists():
+                from ..services.render_service import render_page
+                render_page(pdf_path, page_number, render_dpi, project_dir)
+            else:
+                raise HTTPException(status_code=400, detail="Original image not rendered yet")
+        else:
+            # Render bajo demanda a DPI completo
+            if pdf_path.exists():
+                from ..services.render_service import render_page
+                render_page(pdf_path, page_number, render_dpi, project_dir)
+            else:
+                raise HTTPException(status_code=400, detail="Original image not rendered yet")
     
     regions = text_regions_repo.list_by_page(project_id, page_number)
 
@@ -383,7 +416,7 @@ async def render_translated(
             drawings,
             project_dir,
             page_number,
-            dpi,
+            render_dpi,
         )
     else:
         output_path = compose_service.compose_page(
@@ -391,13 +424,13 @@ async def render_translated(
             regions,
             project_dir,
             page_number,
-            dpi,
+            render_dpi,
         )
     
     # Actualizar estado
     pages_repo.upsert(project_id, page_number, has_translated=True)
     
-    return {"status": "ok", "path": str(output_path)}
+    return {"status": "ok", "path": str(output_path), "dpi": render_dpi}
 
 
 @router.get("/{page_number}/image")
@@ -407,11 +440,24 @@ async def get_page_image(
     kind: str = Query(default="original"),
     dpi: int = Query(default=DEFAULT_DPI),
 ):
-    """Obtiene la imagen de una página (original o traducida)."""
+    """Obtiene la imagen de una página (original o traducida).
+    Si la imagen original no existe, la renderiza bajo demanda."""
+    project = projects_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
     project_dir = PROJECTS_DIR / project_id
     
     if kind == "original":
         image_path = project_dir / "pages" / f"{page_number:03d}_original_{dpi}.png"
+        # Render bajo demanda si no existe
+        if not image_path.exists():
+            pdf_path = project_dir / "src.pdf"
+            if pdf_path.exists():
+                from ..services.render_service import render_page
+                render_page(pdf_path, page_number, dpi, project_dir)
+            else:
+                raise HTTPException(status_code=404, detail="PDF source not found")
     elif kind == "translated":
         image_path = project_dir / "pages" / f"{page_number:03d}_translated_{dpi}.png"
     else:
@@ -431,9 +477,13 @@ async def get_thumbnail(
 ):
     """Obtiene el thumbnail de una página."""
     project_dir = PROJECTS_DIR / project_id
-    thumb_path = project_dir / "thumbs" / f"{page_number:03d}_{kind}.png"
+    # Intentar JPEG primero (translated), luego PNG (original/legacy)
+    thumb_jpg = project_dir / "thumbs" / f"{page_number:03d}_{kind}.jpg"
+    thumb_png = project_dir / "thumbs" / f"{page_number:03d}_{kind}.png"
     
-    if not thumb_path.exists():
-        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    if thumb_jpg.exists():
+        return FileResponse(thumb_jpg, media_type="image/jpeg")
+    if thumb_png.exists():
+        return FileResponse(thumb_png, media_type="image/png")
     
-    return FileResponse(thumb_path, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Thumbnail not found")
