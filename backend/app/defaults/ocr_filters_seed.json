@@ -1,0 +1,21 @@
+[
+  {"mode": "contains", "pattern": "环", "case_sensitive": false},
+  {"mode": "contains", "pattern": "盿", "case_sensitive": false},
+  {"mode": "contains", "pattern": "圃鳻备", "case_sensitive": false},
+  {"mode": "contains", "pattern": "4&戆备", "case_sensitive": false},
+  {"mode": "contains", "pattern": "氤翌毽备", "case_sensitive": false},
+  {"mode": "contains", "pattern": "9毽鳼", "case_sensitive": false},
+  {"mode": "contains", "pattern": "圃婴毽鳼", "case_sensitive": false},
+  {"mode": "contains", "pattern": "P卫/1.8卫", "case_sensitive": false},
+  {"mode": "regex", "pattern": "髫", "case_sensitive": false},
+  {"mode": "regex", "pattern": "P卫/2.9卫", "case_sensitive": false},
+  {"mode": "regex", "pattern": "篝", "case_sensitive": false},
+  {"mode": "regex", "pattern": "P卫/3.9卫", "case_sensitive": false},
+  {"mode": "regex", "pattern": "P卫/3.0卫", "case_sensitive": false},
+  {"mode": "regex", "pattern": "P卫/4.0卫", "case_sensitive": false},
+  {"mode": "regex", "pattern": "P卫/1.8卫", "case_sensitive": false},
+  {"mode": "regex", "pattern": "寸", "case_sensitive": false},
+  {"mode": "regex", "pattern": "35m叫", "case_sensitive": false},
+  {"mode": "regex", "pattern": "疏", "case_sensitive": false},
+  {"mode": "regex", "pattern": "南兴装备", "case_sensitive": true}
+]

@@ -400,7 +400,7 @@ export default function SettingsPage() {
           {/* Info */}
           <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-600">
             <p className="font-medium mb-2">Acerca de NB7X Translator</p>
-            <p>Versión 0.1.0</p>
+            <p>Versión 1.5.0</p>
             <p>Traductor de PDFs de imagen (esquemas eléctricos) de chino a español.</p>
           </div>
         </div>

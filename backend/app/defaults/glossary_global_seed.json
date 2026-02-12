@@ -1,0 +1,18 @@
+[
+  {"id": "84c85c22-ba2a-40af-80b8-ef2d474df1b3", "src_term": "电源进线", "tgt_term": "Entrada Alimentación", "locked": true},
+  {"id": "f0c0db9b-cc98-4511-a8e0-d0204541a858", "src_term": "常用颜色英文对应表", "tgt_term": "Lista Color - Abrebiatura", "locked": true},
+  {"id": "1743ef36-c5c3-4498-9dcd-933dd74e32d5", "src_term": "自动封边机N7", "tgt_term": "Encoladora Automática NB7X", "locked": true},
+  {"id": "8d1c4f8d-51eb-492f-ba9b-8ed4b0eebdbd", "src_term": "图纸系列:", "tgt_term": "Tipo de dibujo:", "locked": true},
+  {"id": "6d81e199-2969-4ca8-8090-472e38780a20", "src_term": "电气原理图", "tgt_term": "Esquema Eléctrico", "locked": true},
+  {"id": "71f4b929-93bd-4967-9f1c-a9dab5fc1b02", "src_term": "共页:", "tgt_term": "Total Páginas.", "locked": true},
+  {"id": "59a02d6f-7fd4-4395-8244-bd1af04bb773", "src_term": "审核-", "tgt_term": "Auditoría:", "locked": true},
+  {"id": "0d753929-3c17-48d2-9d66-d5f12a429ef8", "src_term": "校对:", "tgt_term": "Corrector:", "locked": true},
+  {"id": "657dfcba-ea9f-4b35-8418-b4950887ab85", "src_term": "机型:", "tgt_term": "Modelo:", "locked": true},
+  {"id": "64a9fc08-5824-4aa5-88c5-14c4b9c6ef1f", "src_term": "机型:自动封边机N78", "tgt_term": "Modelo: Canteadora Automática NB7X", "locked": true},
+  {"id": "dfd6cafa-4438-4cd1-9e16-a58b656ac862", "src_term": "期:", "tgt_term": "Fecha:", "locked": true},
+  {"id": "6c1b0742-7258-4541-8b29-c0e2adb49803", "src_term": "执行", "tgt_term": "Iniciar", "locked": true},
+  {"id": "3923824e-3a86-4f1f-a129-327149f6e78c", "src_term": "机型:自动封边机NB7CJ", "tgt_term": "Modelo: Cantedora automática NB7CJ", "locked": true},
+  {"id": "69d2ab7e-c673-4726-9ec0-eb787753ac0b", "src_term": "图号:", "tgt_term": "Código:", "locked": true},
+  {"id": "a68c97a5-2d7e-4244-994d-595d67d51cb2", "src_term": "仿形电机", "tgt_term": "Motores perfiladores", "locked": true},
+  {"id": "114494c3-7003-4f85-9012-01292b4c7347", "src_term": "修边工电机", "tgt_term": "Motores de las Sierras", "locked": true}
+]

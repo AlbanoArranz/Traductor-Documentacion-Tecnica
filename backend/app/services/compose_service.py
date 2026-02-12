@@ -213,6 +213,8 @@ def compose_page(
 
         effective_bbox = _effective_bbox_for_compose(region, sorted_regions, img_w, img_h)
         x1, y1, x2, y2 = [int(v) for v in effective_bbox]
+        # Normalizar coordenadas para PIL (requiere x1<=x2, y1<=y2)
+        x1, y1, x2, y2 = min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
         bbox_width = x2 - x1
         bbox_height = y2 - y1
         
@@ -410,6 +412,8 @@ def compose_page_with_drawings(
 
         effective_bbox = _effective_bbox_for_compose(region, sorted_regions, img_w, img_h)
         x1, y1, x2, y2 = [int(v) for v in effective_bbox]
+        # Normalizar coordenadas para PIL (requiere x1<=x2, y1<=y2)
+        x1, y1, x2, y2 = min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
         bbox_width = x2 - x1
         bbox_height = y2 - y1
         

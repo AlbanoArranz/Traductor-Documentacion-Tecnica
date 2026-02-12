@@ -3,6 +3,8 @@ Configuración del backend.
 """
 
 import os
+import json
+import shutil
 import contextvars
 import contextlib
 from pathlib import Path
@@ -31,15 +33,56 @@ CONFIG_FILE = APP_DATA_DIR / "config.json"
 # Glosario global (para todos los proyectos)
 GLOSSARY_GLOBAL_FILE = APP_DATA_DIR / "glossary_global.json"
 
+# --- Seed: copiar defaults en primera ejecución ---
+import sys as _sys
+_DEFAULTS_DIR = Path(getattr(_sys, "_MEIPASS", Path(__file__).parent)) / "defaults"
+
+def _seed_defaults():
+    """Copia archivos seed a %APPDATA% solo si no existen."""
+    if not _DEFAULTS_DIR.exists():
+        return
+    # config.json con filtros OCR
+    if not CONFIG_FILE.exists():
+        seed_filters = _DEFAULTS_DIR / "ocr_filters_seed.json"
+        if seed_filters.exists():
+            try:
+                with open(seed_filters, "r", encoding="utf-8") as f:
+                    filters = json.load(f)
+                initial_config = {
+                    "default_dpi": 450,
+                    "min_han_ratio": 0.0,
+                    "ocr_engine": "rapidocr",
+                    "ocr_mode": "advanced",
+                    "min_ocr_confidence": 0.55,
+                    "ocr_enable_label_recheck": True,
+                    "ocr_recheck_max_regions_per_page": 200,
+                    "ocr_region_filters": filters,
+                    "sync_enabled": True,
+                }
+                with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                    json.dump(initial_config, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+    # glossary_global.json
+    if not GLOSSARY_GLOBAL_FILE.exists():
+        seed_glossary = _DEFAULTS_DIR / "glossary_global_seed.json"
+        if seed_glossary.exists():
+            try:
+                shutil.copy2(seed_glossary, GLOSSARY_GLOBAL_FILE)
+            except Exception:
+                pass
+
+_seed_defaults()
+
 # DPI por defecto
 DEFAULT_DPI = 450
 HIGH_DPI = 600
 
 # OCR
 CJK_RATIO_THRESHOLD = 0.2
-DEFAULT_MIN_HAN_RATIO = 1.0
-DEFAULT_OCR_ENGINE = "easyocr"
-DEFAULT_OCR_MODE = "basic"
+DEFAULT_MIN_HAN_RATIO = 0.0
+DEFAULT_OCR_ENGINE = "rapidocr"
+DEFAULT_OCR_MODE = "advanced"
 DEFAULT_MIN_OCR_CONFIDENCE = 0.55
 # Recheck (EasyOCR EN) puede ayudar a reducir falsos positivos.
 DEFAULT_OCR_ENABLE_LABEL_RECHECK = True

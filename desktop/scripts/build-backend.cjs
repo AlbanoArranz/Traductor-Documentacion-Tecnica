@@ -18,9 +18,14 @@ console.log('=== Build Backend ===');
 console.log(`Backend dir: ${BACKEND_DIR}`);
 console.log(`Output dir: ${OUTPUT_DIR}`);
 
-// Limpiar output anterior
+// Limpiar output anterior (manejar locks EBUSY en Windows)
 if (fs.existsSync(OUTPUT_DIR)) {
-  fs.rmSync(OUTPUT_DIR, { recursive: true });
+  fs.rmSync(OUTPUT_DIR, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 300,
+  });
 }
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 

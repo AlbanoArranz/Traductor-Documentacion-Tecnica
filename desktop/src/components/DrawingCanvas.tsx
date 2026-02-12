@@ -199,6 +199,10 @@ export function DrawingCanvas({
   }, [onDrawingCreate, strokeColor, strokeWidth])
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Si el click es en un handle de resize, no procesar (el handle lo gestiona en burbuja)
+    const target = e.target as Element
+    if (target.getAttribute?.('data-testid')?.startsWith('drawing-handle-')) return
+
     if (!tool || tool === 'select') {
       const point = getScaledPoint(e)
       const hitId = _hitTestTopFirst(point)
@@ -312,18 +316,18 @@ export function DrawingCanvas({
       } else {
         setCurrentPoint(point)
       }
-    } else if (isDragging && dragStart) {
-      const current = getScaledPoint(e)
-      const dx = current.x - dragStart.x
-      const dy = current.y - dragStart.y
-      // Acumular offset local sin llamar API
-      setDragOffset({ dx, dy })
     } else if (isResizing && resizeHandle && resizeStartPoint && selectedDrawingIds.length === 1) {
       const current = getScaledPoint(e)
       const dx = current.x - resizeStartPoint.x
       const dy = current.y - resizeStartPoint.y
       // Acumular offset local sin llamar API
       setResizeOffset({ dx, dy })
+    } else if (isDragging && dragStart) {
+      const current = getScaledPoint(e)
+      const dx = current.x - dragStart.x
+      const dy = current.y - dragStart.y
+      // Acumular offset local sin llamar API
+      setDragOffset({ dx, dy })
     } else if (marqueeStart) {
       const current = getScaledPoint(e)
       setMarqueeEnd(current)
@@ -331,6 +335,55 @@ export function DrawingCanvas({
   }
 
   const handleMouseUp = () => {
+    if (isResizing) {
+      // Commit resize: aplicar offset acumulado de una sola vez (prioridad sobre drag)
+      if (onDrawingUpdate && selectedDrawingIds.length === 1 && (resizeOffset.dx !== 0 || resizeOffset.dy !== 0)) {
+        const id = selectedDrawingIds[0]
+        const drawing = drawings.find(d => d.id === id)
+        if (drawing && drawing.points.length >= 4) {
+          const [x1, y1, x2, y2] = drawing.points
+          let newPoints: number[] = [x1, y1, x2, y2]
+
+          if (drawing.element_type === 'line') {
+            // Líneas: mover solo el endpoint arrastrado, sin normalizar
+            switch (resizeHandle) {
+              case 'nw': newPoints = [x1 + resizeOffset.dx, y1 + resizeOffset.dy, x2, y2]; break
+              case 'se': newPoints = [x1, y1, x2 + resizeOffset.dx, y2 + resizeOffset.dy]; break
+            }
+          } else {
+            switch (resizeHandle) {
+              case 'nw': newPoints = [x1 + resizeOffset.dx, y1 + resizeOffset.dy, x2, y2]; break
+              case 'ne': newPoints = [x1, y1 + resizeOffset.dy, x2 + resizeOffset.dx, y2]; break
+              case 'sw': newPoints = [x1 + resizeOffset.dx, y1, x2, y2 + resizeOffset.dy]; break
+              case 'se': newPoints = [x1, y1, x2 + resizeOffset.dx, y2 + resizeOffset.dy]; break
+            }
+
+            // Normalizar y aplicar límites mínimos (solo para rect/circle/image/text)
+            let nx1 = Math.min(newPoints[0], newPoints[2])
+            let nx2 = Math.max(newPoints[0], newPoints[2])
+            let ny1 = Math.min(newPoints[1], newPoints[3])
+            let ny2 = Math.max(newPoints[1], newPoints[3])
+            const minW = 20
+            const minH = 10
+            if (nx2 - nx1 < minW) nx2 = nx1 + minW
+            if (ny2 - ny1 < minH) ny2 = ny1 + minH
+            newPoints = [nx1, ny1, nx2, ny2]
+          }
+
+          onDrawingUpdate(id, { points: newPoints })
+        }
+      }
+      setIsResizing(false)
+      setResizeHandle(null)
+      setResizeStartPoint(null)
+      setResizeOffset({ dx: 0, dy: 0 })
+      // Safety: limpiar drag state si estaba activo por captura
+      setIsDragging(false)
+      setDragStart(null)
+      setDragOffset({ dx: 0, dy: 0 })
+      return
+    }
+
     if (isDragging) {
       // Commit drag: aplicar offset acumulado de una sola vez
       if (onDrawingUpdate && (dragOffset.dx !== 0 || dragOffset.dy !== 0)) {
@@ -347,42 +400,6 @@ export function DrawingCanvas({
       setIsDragging(false)
       setDragStart(null)
       setDragOffset({ dx: 0, dy: 0 })
-      return
-    }
-    
-    if (isResizing) {
-      // Commit resize: aplicar offset acumulado de una sola vez
-      if (onDrawingUpdate && selectedDrawingIds.length === 1 && (resizeOffset.dx !== 0 || resizeOffset.dy !== 0)) {
-        const id = selectedDrawingIds[0]
-        const drawing = drawings.find(d => d.id === id)
-        if (drawing && drawing.points.length >= 4) {
-          const [x1, y1, x2, y2] = drawing.points
-          let newPoints: number[] = [x1, y1, x2, y2]
-          switch (resizeHandle) {
-            case 'nw': newPoints = [x1 + resizeOffset.dx, y1 + resizeOffset.dy, x2, y2]; break
-            case 'ne': newPoints = [x1, y1 + resizeOffset.dy, x2 + resizeOffset.dx, y2]; break
-            case 'sw': newPoints = [x1 + resizeOffset.dx, y1, x2, y2 + resizeOffset.dy]; break
-            case 'se': newPoints = [x1, y1, x2 + resizeOffset.dx, y2 + resizeOffset.dy]; break
-          }
-
-          // Normalizar y aplicar límites mínimos
-          let nx1 = Math.min(newPoints[0], newPoints[2])
-          let nx2 = Math.max(newPoints[0], newPoints[2])
-          let ny1 = Math.min(newPoints[1], newPoints[3])
-          let ny2 = Math.max(newPoints[1], newPoints[3])
-          const minW = 20
-          const minH = 10
-          if (nx2 - nx1 < minW) nx2 = nx1 + minW
-          if (ny2 - ny1 < minH) ny2 = ny1 + minH
-
-          newPoints = [nx1, ny1, nx2, ny2]
-          onDrawingUpdate(id, { points: newPoints })
-        }
-      }
-      setIsResizing(false)
-      setResizeHandle(null)
-      setResizeStartPoint(null)
-      setResizeOffset({ dx: 0, dy: 0 })
       return
     }
     
@@ -587,7 +604,12 @@ export function DrawingCanvas({
     const isSelected = selectedDrawingIds.includes(d.id)
 
     if (d.element_type === 'line') {
-      const [x1, y1, x2, y2] = d.points
+      let [x1, y1, x2, y2] = d.points
+      // Preview de resize en tiempo real
+      if (isSelected && isResizing && selectedDrawingIds.length === 1) {
+        if (resizeHandle === 'nw') { x1 += resizeOffset.dx; y1 += resizeOffset.dy }
+        if (resizeHandle === 'se') { x2 += resizeOffset.dx; y2 += resizeOffset.dy }
+      }
       return (
         <line
           key={d.id}
@@ -603,6 +625,7 @@ export function DrawingCanvas({
           style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
           onMouseDown={(e) => {
             e.stopPropagation()
+            if (isResizing) return
             if (tool === 'select' && selectedDrawingIds.includes(d.id) && onDrawingUpdate) {
               setIsDragging(true)
               setDragStart(getScaledPoint(e))
@@ -780,7 +803,12 @@ export function DrawingCanvas({
           let cx = 0, cy = 0, rx = 0, ry = 0
 
           if (selected.element_type === 'line' && selected.points.length >= 4) {
-            const [x1, y1, x2, y2] = selected.points
+            let [x1, y1, x2, y2] = selected.points
+            // Aplicar offset de resize para preview
+            if (isResizing && selectedDrawingIds.length === 1) {
+              if (resizeHandle === 'nw') { x1 += resizeOffset.dx; y1 += resizeOffset.dy }
+              if (resizeHandle === 'se') { x2 += resizeOffset.dx; y2 += resizeOffset.dy }
+            }
             cx = ((x1 + x2) / 2) * scale
             cy = ((y1 + y2) / 2) * scale
             rx = (Math.abs(x2 - x1) / 2 + 6) * scale
@@ -813,56 +841,104 @@ export function DrawingCanvas({
           const showHandles = selectedDrawingIds.length === 1 && selectedDrawingIds[0] === id && selected.element_type !== 'polyline'
 
           if (showHandles && onDrawingUpdate) {
-            handles.push(
-              <rect 
-                key={`${id}-nw`}
-                data-testid="drawing-handle-nw"
-                x={cx - rx - 4} y={cy - ry - 4} width={8} height={8} fill="#2563eb" 
-                style={{ cursor: 'nw-resize' }}
-                onMouseDown={(e) => {
-                  e.stopPropagation()
-                  setIsResizing(true)
-                  setResizeHandle('nw')
-                  setResizeStartPoint(getScaledPoint(e))
-                }}
-              />,
-              <rect 
-                key={`${id}-ne`}
-                data-testid="drawing-handle-ne"
-                x={cx + rx - 4} y={cy - ry - 4} width={8} height={8} fill="#2563eb" 
-                style={{ cursor: 'ne-resize' }}
-                onMouseDown={(e) => {
-                  e.stopPropagation()
-                  setIsResizing(true)
-                  setResizeHandle('ne')
-                  setResizeStartPoint(getScaledPoint(e))
-                }}
-              />,
-              <rect 
-                key={`${id}-sw`}
-                data-testid="drawing-handle-sw"
-                x={cx - rx - 4} y={cy + ry - 4} width={8} height={8} fill="#2563eb" 
-                style={{ cursor: 'sw-resize' }}
-                onMouseDown={(e) => {
-                  e.stopPropagation()
-                  setIsResizing(true)
-                  setResizeHandle('sw')
-                  setResizeStartPoint(getScaledPoint(e))
-                }}
-              />,
-              <rect 
-                key={`${id}-se`}
-                data-testid="drawing-handle-se"
-                x={cx + rx - 4} y={cy + ry - 4} width={8} height={8} fill="#2563eb" 
-                style={{ cursor: 'se-resize' }}
-                onMouseDown={(e) => {
-                  e.stopPropagation()
-                  setIsResizing(true)
-                  setResizeHandle('se')
-                  setResizeStartPoint(getScaledPoint(e))
-                }}
-              />
-            )
+            if (selected.element_type === 'line' && selected.points.length >= 4) {
+              // Líneas: 2 handles en los endpoints (con offset de resize)
+              let [lx1, ly1, lx2, ly2] = selected.points
+              if (isResizing) {
+                if (resizeHandle === 'nw') { lx1 += resizeOffset.dx; ly1 += resizeOffset.dy }
+                if (resizeHandle === 'se') { lx2 += resizeOffset.dx; ly2 += resizeOffset.dy }
+              }
+              handles.push(
+                <rect
+                  key={`${id}-p1`}
+                  data-testid="drawing-handle-nw"
+                  x={lx1 * scale - 5} y={ly1 * scale - 5} width={10} height={10} fill="#2563eb" rx={5}
+                  style={{ cursor: 'crosshair', pointerEvents: 'all' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    setIsDragging(false)
+                    setDragStart(null)
+                    setIsResizing(true)
+                    setResizeHandle('nw')
+                    setResizeStartPoint(getScaledPoint(e))
+                  }}
+                />,
+                <rect
+                  key={`${id}-p2`}
+                  data-testid="drawing-handle-se"
+                  x={lx2 * scale - 5} y={ly2 * scale - 5} width={10} height={10} fill="#2563eb" rx={5}
+                  style={{ cursor: 'crosshair', pointerEvents: 'all' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    setIsDragging(false)
+                    setDragStart(null)
+                    setIsResizing(true)
+                    setResizeHandle('se')
+                    setResizeStartPoint(getScaledPoint(e))
+                  }}
+                />
+              )
+            } else {
+              // Rect/circle/image/text: 4 handles de esquina
+              handles.push(
+                <rect 
+                  key={`${id}-nw`}
+                  data-testid="drawing-handle-nw"
+                  x={cx - rx - 4} y={cy - ry - 4} width={8} height={8} fill="#2563eb" 
+                  style={{ cursor: 'nw-resize' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    setIsDragging(false)
+                    setDragStart(null)
+                    setIsResizing(true)
+                    setResizeHandle('nw')
+                    setResizeStartPoint(getScaledPoint(e))
+                  }}
+                />,
+                <rect 
+                  key={`${id}-ne`}
+                  data-testid="drawing-handle-ne"
+                  x={cx + rx - 4} y={cy - ry - 4} width={8} height={8} fill="#2563eb" 
+                  style={{ cursor: 'ne-resize' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    setIsDragging(false)
+                    setDragStart(null)
+                    setIsResizing(true)
+                    setResizeHandle('ne')
+                    setResizeStartPoint(getScaledPoint(e))
+                  }}
+                />,
+                <rect 
+                  key={`${id}-sw`}
+                  data-testid="drawing-handle-sw"
+                  x={cx - rx - 4} y={cy + ry - 4} width={8} height={8} fill="#2563eb" 
+                  style={{ cursor: 'sw-resize' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    setIsDragging(false)
+                    setDragStart(null)
+                    setIsResizing(true)
+                    setResizeHandle('sw')
+                    setResizeStartPoint(getScaledPoint(e))
+                  }}
+                />,
+                <rect 
+                  key={`${id}-se`}
+                  data-testid="drawing-handle-se"
+                  x={cx + rx - 4} y={cy + ry - 4} width={8} height={8} fill="#2563eb" 
+                  style={{ cursor: 'se-resize' }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation()
+                    setIsDragging(false)
+                    setDragStart(null)
+                    setIsResizing(true)
+                    setResizeHandle('se')
+                    setResizeStartPoint(getScaledPoint(e))
+                  }}
+                />
+              )
+            }
           }
 
           return (
