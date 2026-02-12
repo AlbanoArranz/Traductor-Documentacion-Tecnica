@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Book, Play, Download, Lock, Unlock, Trash2, RefreshCw, Undo2, Redo2, Pencil } from 'lucide-react'
@@ -98,6 +98,33 @@ export default function ProjectPage() {
     queryFn: () => pagesApi.getTextRegions(projectId!, selectedPage).then(res => res.data),
     enabled: !!projectId,
   })
+
+  const isolatedRegionIds = useMemo(() => {
+    const out = new Set<string>()
+    if (!regions || regions.length === 0) return out
+
+    const intersects = (a: number[], b: number[]) => {
+      const [ax1, ay1, ax2, ay2] = a
+      const [bx1, by1, bx2, by2] = b
+      return !(ax2 <= bx1 || ax1 >= bx2 || ay2 <= by1 || ay1 >= by2)
+    }
+
+    for (let i = 0; i < regions.length; i++) {
+      const a = regions[i]
+      let isolated = true
+      for (let j = 0; j < regions.length; j++) {
+        if (i === j) continue
+        const b = regions[j]
+        if (intersects(a.bbox, b.bbox)) {
+          isolated = false
+          break
+        }
+      }
+      if (isolated) out.add(a.id)
+    }
+
+    return out
+  }, [regions])
 
   // Query para elementos de dibujo de la página actual
   const { data: drawings } = useQuery({
@@ -1092,6 +1119,7 @@ export default function ProjectPage() {
                       region={region}
                       scale={imageScale}
                       isSelected={selectedRegionIds.has(region.id)}
+                      isIsolated={isolatedRegionIds.has(region.id)}
                       index={index}
                       onSelect={(e) => {
                         if (e?.ctrlKey || e?.metaKey) {
@@ -1486,8 +1514,9 @@ export default function ProjectPage() {
               queryClient.invalidateQueries({ queryKey: ['snippets'] })
               toast.success('Imagen guardada en la librería')
             } catch (e) {
-              console.error('Error capturing snippet:', e)
-              toast.error('Error al capturar la imagen')
+              const detail = (e as any)?.response?.data?.detail || (e as any)?.message || String(e)
+              console.error('Error capturing snippet:', detail, e)
+              toast.error(`Error al capturar: ${detail}`)
             }
             setCaptureDialogBbox(null)
             setDrawingTool('select')

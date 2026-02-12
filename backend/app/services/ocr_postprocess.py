@@ -85,6 +85,11 @@ def recheck_suspicious_regions(
             out.append(r)
 
     if not suspicious:
+        logger.info(
+            "OCR recheck (basic): skipped (suspicious=0) source_dpi=%s target_dpi=%s",
+            source_dpi,
+            target_dpi,
+        )
         return out
 
     max_to_check = int(recheck_max_regions_per_page)
@@ -94,6 +99,16 @@ def recheck_suspicious_regions(
     scale = 1.0
     if source_dpi and int(source_dpi) > 0:
         scale = min(1.0, float(target_dpi) / float(source_dpi))
+
+    logger.info(
+        "OCR recheck (basic): suspicious=%s to_check=%s passthrough=%s source_dpi=%s target_dpi=%s scale=%.3f",
+        len(suspicious),
+        len(to_check),
+        len(passthrough),
+        source_dpi,
+        target_dpi,
+        float(scale),
+    )
 
     reader = _get_easyocr_en_reader()
     crops: List[np.ndarray] = []
@@ -164,6 +179,13 @@ def filter_regions_advanced(
             out.append(r)
 
     if not enable_label_recheck or not suspicious:
+        logger.info(
+            "OCR recheck (advanced): skipped (enable=%s suspicious=%s) source_dpi=%s target_dpi=%s",
+            bool(enable_label_recheck),
+            len(suspicious),
+            source_dpi,
+            target_dpi,
+        )
         return out + suspicious
 
     max_to_check = int(recheck_max_regions_per_page)
@@ -173,6 +195,16 @@ def filter_regions_advanced(
     scale = 1.0
     if source_dpi and int(source_dpi) > 0:
         scale = min(1.0, float(target_dpi) / float(source_dpi))
+
+    logger.info(
+        "OCR recheck (advanced): suspicious=%s to_check=%s passthrough=%s source_dpi=%s target_dpi=%s scale=%.3f",
+        len(suspicious),
+        len(to_check),
+        len(passthrough),
+        source_dpi,
+        target_dpi,
+        float(scale),
+    )
 
     reader = _get_easyocr_en_reader()
     crops: List[np.ndarray] = []

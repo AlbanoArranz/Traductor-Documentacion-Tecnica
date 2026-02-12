@@ -10,7 +10,7 @@ export default function SettingsPage() {
   const [deeplApiKey, setDeeplApiKey] = useState('')
   const [defaultDpi, setDefaultDpi] = useState('450')
   const [minHanRatio, setMinHanRatio] = useState('100')
-  const [ocrEngine, setOcrEngine] = useState<'easyocr' | 'paddleocr'>('easyocr')
+  const [ocrEngine, setOcrEngine] = useState<'easyocr' | 'paddleocr' | 'rapidocr'>('easyocr')
   const [ocrMode, setOcrMode] = useState<'basic' | 'advanced'>('basic')
   const [minOcrConfidence, setMinOcrConfidence] = useState('55')
   const [enableLabelRecheck, setEnableLabelRecheck] = useState(true)
@@ -26,7 +26,7 @@ export default function SettingsPage() {
     if (!settings) return
     setDefaultDpi(String(settings.default_dpi ?? 450))
     setMinHanRatio(String(Math.round(((settings.min_han_ratio ?? 1.0) * 100) as number)))
-    setOcrEngine((settings.ocr_engine as 'easyocr' | 'paddleocr') || 'easyocr')
+    setOcrEngine((settings.ocr_engine as 'easyocr' | 'paddleocr' | 'rapidocr') || 'easyocr')
     setOcrMode((settings.ocr_mode as 'basic' | 'advanced') || 'basic')
     setMinOcrConfidence(String(Math.round(((settings.min_ocr_confidence ?? 0.55) * 100) as number)))
     setEnableLabelRecheck(Boolean(settings.ocr_enable_label_recheck ?? true))
@@ -46,7 +46,7 @@ export default function SettingsPage() {
         deepl_api_key?: string
         default_dpi: number
         min_han_ratio: number
-        ocr_engine: 'easyocr' | 'paddleocr'
+        ocr_engine: 'easyocr' | 'paddleocr' | 'rapidocr'
         ocr_mode: 'basic' | 'advanced'
         min_ocr_confidence: number
         ocr_enable_label_recheck: boolean
@@ -266,10 +266,11 @@ export default function SettingsPage() {
                 </label>
                 <select
                   value={ocrEngine}
-                  onChange={(e) => setOcrEngine(e.target.value as 'easyocr' | 'paddleocr')}
+                  onChange={(e) => setOcrEngine(e.target.value as 'easyocr' | 'paddleocr' | 'rapidocr')}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
                 >
-                  <option value="easyocr">EasyOCR (recomendado)</option>
+                  <option value="easyocr">EasyOCR (por defecto)</option>
+                  <option value="rapidocr">RapidOCR (rápido, recomendado)</option>
                   <option value="paddleocr">PaddleOCR</option>
                 </select>
                 <p className="mt-1 text-sm text-gray-500">

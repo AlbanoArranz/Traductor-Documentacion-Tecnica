@@ -24,7 +24,6 @@ from ..db.models import TextRegion
 # Lazy load de EasyOCR para evitar importación lenta al inicio
 _ocr_reader = None
 
-
 def _get_ocr():
     """Obtiene la instancia de EasyOCR Reader (lazy load)."""
     global _ocr_reader
@@ -80,7 +79,7 @@ def detect_text(image_path: Path, dpi: int, custom_filters: list = None, documen
     # Obtener dimensiones de la imagen
     with Image.open(image_path) as img:
         img_width, img_height = img.size
-    
+
     # Ejecutar OCR - EasyOCR devuelve lista de (bbox, text, confidence)
     result = reader.readtext(str(image_path))
     

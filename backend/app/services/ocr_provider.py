@@ -26,6 +26,16 @@ def detect_text(
             document_type=document_type,
         )
 
+    if engine == "rapidocr":
+        from . import ocr_service_rapid
+
+        return ocr_service_rapid.detect_text(
+            image_path,
+            dpi,
+            custom_filters=custom_filters,
+            document_type=document_type,
+        )
+
     from . import ocr_service
 
     return ocr_service.detect_text(

@@ -87,7 +87,7 @@ export interface Settings {
   deepl_api_key: string | null
   default_dpi: number
   min_han_ratio: number
-  ocr_engine?: 'easyocr' | 'paddleocr'
+  ocr_engine?: 'easyocr' | 'paddleocr' | 'rapidocr'
   ocr_mode?: 'basic' | 'advanced'
   min_ocr_confidence?: number
   ocr_enable_label_recheck?: boolean

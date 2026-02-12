@@ -15,6 +15,39 @@ from PIL import Image, ImageDraw, ImageFont
 from ..db.models import TextRegion, DrawingElement
 
 
+def _bbox_intersects(a: List[float], b: List[float]) -> bool:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    return not (ax2 <= bx1 or ax1 >= bx2 or ay2 <= by1 or ay1 >= by2)
+
+
+def _expand_bbox_height(bbox: List[float], factor: float, img_h: int) -> List[float]:
+    """Expand bbox only vertically (height), keeping width unchanged."""
+    x1, y1, x2, y2 = bbox
+    h = max(1.0, float(y2 - y1))
+    cy = (float(y1) + float(y2)) / 2.0
+    nh = h * float(factor)
+    ny1 = max(0.0, cy - nh / 2.0)
+    ny2 = min(float(img_h), cy + nh / 2.0)
+    if ny2 <= ny1:
+        ny2 = min(float(img_h), ny1 + 1.0)
+    return [float(x1), ny1, float(x2), ny2]
+
+
+def _effective_bbox_for_compose(region: TextRegion, regions: List[TextRegion], img_w: int, img_h: int) -> List[float]:
+    bbox = list(region.bbox)
+    is_isolated = True
+    for other in regions:
+        if other is region:
+            continue
+        if _bbox_intersects(bbox, other.bbox):
+            is_isolated = False
+            break
+    if is_isolated:
+        return _expand_bbox_height(bbox, 1.2, img_h)
+    return bbox
+
+
 @lru_cache(maxsize=64)
 def _resolve_font(font_family: str, size: int) -> ImageFont.FreeTypeFont:
     """Resuelve y cachea fuentes para evitar re-abrir archivos .ttf repetidamente."""
@@ -171,13 +204,15 @@ def compose_page(
     # Ordenar regiones por render_order (menor = se dibuja primero/debajo)
     sorted_regions = sorted(regions, key=lambda r: getattr(r, 'render_order', 0))
     
+    img_w, img_h = img.size
     for region in sorted_regions:
         # Usar texto traducido o original si no hay traducción
         text = region.tgt_text or region.src_text
         if not text:
             continue
-        
-        x1, y1, x2, y2 = [int(v) for v in region.bbox]
+
+        effective_bbox = _effective_bbox_for_compose(region, sorted_regions, img_w, img_h)
+        x1, y1, x2, y2 = [int(v) for v in effective_bbox]
         bbox_width = x2 - x1
         bbox_height = y2 - y1
         
@@ -365,14 +400,16 @@ def compose_page_with_drawings(
     
     # Ordenar regiones por render_order (menor = se dibuja primero/debajo)
     sorted_regions = sorted(regions, key=lambda r: getattr(r, 'render_order', 0))
-    
+
+    img_w, img_h = img.size
     for region in sorted_regions:
         # Usar texto traducido o original si no hay traducción
         text = region.tgt_text or region.src_text
         if not text:
             continue
-        
-        x1, y1, x2, y2 = [int(v) for v in region.bbox]
+
+        effective_bbox = _effective_bbox_for_compose(region, sorted_regions, img_w, img_h)
+        x1, y1, x2, y2 = [int(v) for v in effective_bbox]
         bbox_width = x2 - x1
         bbox_height = y2 - y1
         

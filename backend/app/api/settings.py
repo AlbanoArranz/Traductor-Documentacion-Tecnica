@@ -83,7 +83,7 @@ async def update_settings(settings: SettingsUpdate):
         config["min_han_ratio"] = value
     if settings.ocr_engine is not None:
         value = str(settings.ocr_engine).lower().strip()
-        if value not in {"easyocr", "paddleocr"}:
+        if value not in {"easyocr", "paddleocr", "rapidocr"}:
             value = "easyocr"
         config["ocr_engine"] = value
     if settings.ocr_mode is not None:

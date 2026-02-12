@@ -6,14 +6,15 @@ import json
 import uuid
 import tempfile
 import os
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from ..config import PROJECTS_DIR, JOBS_DIR, DEFAULT_DPI, get_config
+from ..config import PROJECTS_DIR, JOBS_DIR, DEFAULT_DPI, get_config, use_config_snapshot
 from ..db.models import Job
 from ..db.repository import projects_repo, pages_repo, text_regions_repo, glossary_repo, global_glossary_repo
-from ..services import render_service, ocr_service, translate_service, compose_service
+from ..services import render_service, translate_service, compose_service
 
 
 def _save_job(job: Job):
@@ -113,116 +114,159 @@ def run_render_all(job_id: str, project_id: str, dpi: int = None):
     try:
         job.status = "running"
         _save_job(job)
-        
-        # DPI: si viene del endpoint, usarlo. Si no, fallback a config.
-        if dpi is None:
-            config = get_config()
-            try:
-                dpi = int(config.get("default_dpi", DEFAULT_DPI))
-            except Exception:
-                dpi = DEFAULT_DPI
 
-        logger.info(f"[JOB] Iniciando con DPI={dpi}, páginas={project.page_count}")
-        
-        project_dir = PROJECTS_DIR / project_id
-        pdf_path = project_dir / "src.pdf"
-        total_pages = project.page_count
-        
-        # Preparar glosario (igual que el flujo manual)
-        global_entries = global_glossary_repo.list_all()
-        glossary_map = {e.src_term: e.tgt_term for e in global_entries if e.locked}
-        local_entries = glossary_repo.list_by_project(project_id)
-        for e in local_entries:
-            if e.locked and e.src_term not in glossary_map:
-                glossary_map[e.src_term] = e.tgt_term
-        
-        logger.info(f"[JOB] Glosario: {len(glossary_map)} términos")
-        
-        # Preparar filtros OCR (igual que el flujo manual)
-        from ..config import get_ocr_region_filters
-        custom_filters = list(project.ocr_region_filters or [])
-        global_filters = get_ocr_region_filters()
-        seen_patterns = {(f.get("mode"), f.get("pattern"), f.get("case_sensitive")) for f in custom_filters}
-        for f in global_filters:
-            key = (f.get("mode"), f.get("pattern"), f.get("case_sensitive"))
-            if key not in seen_patterns:
-                custom_filters.append(f)
-        
-        logger.info(f"[JOB] Filtros OCR: {len(custom_filters)}")
-        
-        # Procesar cada página como en el flujo manual
-        for page_num in range(total_pages):
-            logger.info(f"[JOB] === Página {page_num + 1}/{total_pages} ===")
+        config_snapshot = get_config()
+        with use_config_snapshot(config_snapshot):
+            # DPI: si viene del endpoint, usarlo. Si no, fallback a config.
+            if dpi is None:
+                try:
+                    dpi = int(config_snapshot.get("default_dpi", DEFAULT_DPI))
+                except Exception:
+                    dpi = DEFAULT_DPI
+
+            logger.info(f"[JOB] Iniciando con DPI={dpi}, páginas={project.page_count}")
             
-            # FASE 1: Renderizar página (igual que endpoint render_original)
-            job.current_step = f"Renderizando página {page_num + 1}/{total_pages}..."
-            job.progress = (page_num / total_pages) * 0.2
-            _save_job(job)
+            project_dir = PROJECTS_DIR / project_id
+            pdf_path = project_dir / "src.pdf"
+            total_pages = project.page_count
+        
+            # Preparar glosario (igual que el flujo manual)
+            global_entries = global_glossary_repo.list_all()
+            glossary_map = {e.src_term: e.tgt_term for e in global_entries if e.locked}
+            local_entries = glossary_repo.list_by_project(project_id)
+            for e in local_entries:
+                if e.locked and e.src_term not in glossary_map:
+                    glossary_map[e.src_term] = e.tgt_term
             
-            image_path = project_dir / "pages" / f"{page_num:03d}_original_{dpi}.png"
-            if image_path.exists():
-                logger.info(f"[JOB] Render skip (ya existe): {image_path}")
-            else:
-                image_path = render_service.render_page(pdf_path, page_num, dpi, project_dir)
-            pages_repo.upsert(project_id, page_num, has_original=True)
-            logger.info(f"[JOB] Renderizado: {image_path}")
+            logger.info(f"[JOB] Glosario: {len(glossary_map)} términos")
             
-            # FASE 2: OCR (igual que endpoint run_ocr)
-            job.current_step = f"OCR página {page_num + 1}/{total_pages}..."
-            job.progress = 0.2 + (page_num / total_pages) * 0.3
-            _save_job(job)
+            # Preparar filtros OCR (igual que el flujo manual)
+            from ..config import get_ocr_region_filters
+            custom_filters = list(project.ocr_region_filters or [])
+            global_filters = get_ocr_region_filters()
+            seen_patterns = {(f.get("mode"), f.get("pattern"), f.get("case_sensitive")) for f in custom_filters}
+            for f in global_filters:
+                key = (f.get("mode"), f.get("pattern"), f.get("case_sensitive"))
+                if key not in seen_patterns:
+                    custom_filters.append(f)
+
+            if not custom_filters:
+                custom_filters = None
             
-            if custom_filters:
-                regions = ocr_service.detect_text(image_path, dpi, custom_filters=custom_filters)
-            else:
-                regions = ocr_service.detect_text(image_path, dpi)
+            logger.info(f"[JOB] Filtros OCR: {len(custom_filters) if custom_filters else 0}")
+
+            from ..config import (
+                get_min_han_ratio,
+                get_ocr_enable_label_recheck,
+                get_ocr_engine,
+                get_ocr_mode,
+                get_ocr_recheck_max_regions_per_page,
+            )
+
+            logger.info(
+                "[JOB] OCR settings: engine=%s mode=%s min_han_ratio=%.2f label_recheck=%s recheck_max=%s",
+                get_ocr_engine(),
+                get_ocr_mode(),
+                float(get_min_han_ratio()),
+                bool(get_ocr_enable_label_recheck()),
+                int(get_ocr_recheck_max_regions_per_page()),
+            )
             
-            logger.info(f"[JOB] OCR detectó {len(regions)} regiones")
-            
-            # Traducir regiones detectadas (igual que endpoint run_ocr)
-            if regions:
-                texts_to_translate = []
-                translate_indexes = []
-                for i, r in enumerate(regions):
-                    if r.src_text in glossary_map:
-                        r.tgt_text = glossary_map[r.src_text]
-                    else:
-                        texts_to_translate.append(r.src_text)
-                        translate_indexes.append(i)
+            # Procesar cada página como en el flujo manual
+            for page_num in range(total_pages):
+                logger.info(f"[JOB] === Página {page_num + 1}/{total_pages} ===")
+
+                # FASE 1: Renderizar página (igual que endpoint render_original)
+                job.current_step = f"Renderizando página {page_num + 1}/{total_pages}..."
+                job.progress = (page_num / total_pages) * 0.2
+                _save_job(job)
                 
-                logger.info(f"[JOB] Traduciendo {len(texts_to_translate)} textos (glosario aplicó a {len(regions) - len(texts_to_translate)})")
+                image_path = project_dir / "pages" / f"{page_num:03d}_original_{dpi}.png"
+                if image_path.exists():
+                    logger.info(f"[JOB] Render skip (ya existe): {image_path}")
+                else:
+                    image_path = render_service.render_page(pdf_path, page_num, dpi, project_dir)
+                pages_repo.upsert(project_id, page_num, has_original=True)
+                logger.info(f"[JOB] Renderizado: {image_path}")
                 
-                if texts_to_translate:
-                    translations = translate_service.translate_batch(texts_to_translate)
-                    for idx, translation in zip(translate_indexes, translations):
-                        regions[idx].tgt_text = translation
+                # FASE 2: OCR (igual que endpoint run_ocr)
+                job.current_step = f"OCR página {page_num + 1}/{total_pages}..."
+                job.progress = 0.2 + (page_num / total_pages) * 0.3
+                _save_job(job)
+
+                from . import ocr_provider
+
+                regions = ocr_provider.detect_text(
+                    image_path,
+                    dpi,
+                    custom_filters=custom_filters,
+                    document_type=project.document_type.value,
+                )
                 
-                # Guardar regiones con traducciones
+                logger.info(f"[JOB] OCR detectó {len(regions)} regiones")
+                
+                # Traducir regiones detectadas (igual que endpoint run_ocr)
+                if regions:
+                    texts_to_translate = []
+                    translate_indexes = []
+                    for i, r in enumerate(regions):
+                        if r.src_text in glossary_map:
+                            r.tgt_text = glossary_map[r.src_text]
+                        else:
+                            texts_to_translate.append(r.src_text)
+                            translate_indexes.append(i)
+                    
+                    logger.info(
+                        f"[JOB] Traduciendo {len(texts_to_translate)} textos (glosario aplicó a {len(regions) - len(texts_to_translate)})"
+                    )
+
+                    if texts_to_translate:
+                        from ..config import get_ocr_mode
+
+                        if get_ocr_mode() == "advanced":
+                            from ..services import translate_mixed_service
+
+                            translations = translate_mixed_service.translate_batch_preserving_non_han(
+                                texts_to_translate,
+                                glossary_map,
+                            )
+                        else:
+                            translations = translate_service.translate_batch(texts_to_translate)
+                        for idx, translation in zip(translate_indexes, translations):
+                            regions[idx].tgt_text = translation
+
+                # Guardar regiones (aunque sea lista vacía) para evitar composición con datos antiguos
                 text_regions_repo.replace_for_page(project_id, page_num, regions)
                 logger.info(f"[JOB] Guardadas {len(regions)} regiones")
-            
-            # FASE 3: Componer (igual que endpoint render_translated)
-            job.current_step = f"Componiendo página {page_num + 1}/{total_pages}..."
-            job.progress = 0.5 + (page_num / total_pages) * 0.5
-            _save_job(job)
-            
-            # Recargar regiones desde repo (como hace el endpoint)
-            regions_loaded = text_regions_repo.list_by_page(project_id, page_num)
-            logger.info(f"[JOB] Recargadas {len(regions_loaded)} regiones para composición")
-            
-            # Verificar que tienen tgt_text
-            for r in regions_loaded[:3]:  # Solo primeras 3 para no saturar log
-                logger.info(f"[JOB]   - bbox={r.bbox[:2]}, src='{r.src_text[:20]}...', tgt='{(r.tgt_text or '')[:20]}...'")
-            
-            # Aplicar glosario a regiones no bloqueadas
-            for r in regions_loaded:
-                if not getattr(r, 'locked', False) and r.src_text in glossary_map:
-                    r.tgt_text = glossary_map[r.src_text]
-            
-            # Componer página
-            compose_service.compose_page(image_path, regions_loaded, project_dir, page_num, dpi)
-            pages_repo.upsert(project_id, page_num, has_translated=True)
-            logger.info(f"[JOB] Composición completada")
+                
+                # FASE 3: Componer (igual que endpoint render_translated)
+                job.current_step = f"Componiendo página {page_num + 1}/{total_pages}..."
+                job.progress = 0.5 + (page_num / total_pages) * 0.5
+                _save_job(job)
+                
+                # Recargar regiones desde repo (como hace el endpoint)
+                regions_loaded = text_regions_repo.list_by_page(project_id, page_num)
+                logger.info(f"[JOB] Recargadas {len(regions_loaded)} regiones para composición")
+                
+                # Verificar que tienen tgt_text
+                for r in regions_loaded[:3]:  # Solo primeras 3 para no saturar log
+                    logger.info(
+                        f"[JOB]   - bbox={r.bbox[:2]}, src='{r.src_text[:20]}...', tgt='{(r.tgt_text or '')[:20]}...'"
+                    )
+                
+                # Aplicar glosario a regiones no bloqueadas
+                for r in regions_loaded:
+                    if not getattr(r, 'locked', False) and r.src_text in glossary_map:
+                        r.tgt_text = glossary_map[r.src_text]
+                
+                # Componer página
+                t_comp0 = time.perf_counter()
+                logger.info(f"[JOB] Componiendo (start): page={page_num} regions={len(regions_loaded)} dpi={dpi}")
+                compose_service.compose_page(image_path, regions_loaded, project_dir, page_num, dpi)
+                t_comp1 = time.perf_counter()
+                logger.info(f"[JOB] Componiendo (end): page={page_num} took={t_comp1 - t_comp0:.3f}s")
+                pages_repo.upsert(project_id, page_num, has_translated=True)
+                logger.info(f"[JOB] Composición completada")
         
         job.status = "completed"
         job.progress = 1.0

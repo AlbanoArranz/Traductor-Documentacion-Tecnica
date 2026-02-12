@@ -47,64 +47,88 @@ def _remove_white_background(img: Image.Image, threshold: int = 240) -> Image.Im
 
 
 def _find_original_image(project_id: str, page_number: int) -> Optional[str]:
-    """Busca la imagen original renderizada de una página."""
+    """Busca la imagen original renderizada de una página (prefiere el DPI más alto)."""
     pages_dir = PROJECTS_DIR / project_id / "pages"
     if not pages_dir.exists():
         return None
-    # Buscar con cualquier DPI
-    for f in pages_dir.iterdir():
-        if f.name.startswith(f"{page_number:03d}_original_") and f.suffix == ".png":
-            return str(f)
-    return None
+    prefix = f"{page_number:03d}_original_"
+    candidates = [
+        f for f in pages_dir.iterdir()
+        if f.name.startswith(prefix) and f.suffix == ".png"
+    ]
+    if not candidates:
+        return None
+    # Extraer DPI del nombre (e.g. 000_original_450.png -> 450) y elegir el mayor
+    def _dpi(f):
+        try:
+            return int(f.stem.split("_")[-1])
+        except (ValueError, IndexError):
+            return 0
+    candidates.sort(key=_dpi, reverse=True)
+    return str(candidates[0])
 
 
 @router.post("/capture", response_model=SnippetResponse)
 async def capture_snippet(data: CaptureRequest):
     """Captura una zona de la página y la guarda como snippet."""
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    logger.info(f"[SNIPPET] capture request: project={data.project_id} page={data.page_number} bbox={data.bbox} name={data.name} remove_bg={data.remove_bg}")
+
     project = projects_repo.get(data.project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
     img_path = _find_original_image(data.project_id, data.page_number)
+    logger.info(f"[SNIPPET] found image: {img_path}")
     if not img_path:
         raise HTTPException(status_code=404, detail="Original image not found for this page")
     
-    img = Image.open(img_path)
-    
-    x1, y1, x2, y2 = [int(v) for v in data.bbox]
-    x1 = max(0, min(x1, img.width))
-    y1 = max(0, min(y1, img.height))
-    x2 = max(0, min(x2, img.width))
-    y2 = max(0, min(y2, img.height))
-    
-    if x2 <= x1 or y2 <= y1:
-        raise HTTPException(status_code=400, detail="Invalid bounding box")
-    
-    cropped = img.crop((x1, y1, x2, y2))
-    
-    snippet = snippets_repo.create(
-        name=data.name,
-        width=cropped.width,
-        height=cropped.height,
-        has_transparent=data.remove_bg,
-    )
-    
-    # Guardar imagen original del snippet
-    cropped.save(str(SNIPPETS_DIR / f"{snippet.id}.png"), "PNG")
-    
-    # Guardar versión sin fondo si se solicita
-    if data.remove_bg:
-        nobg = _remove_white_background(cropped)
-        nobg.save(str(SNIPPETS_DIR / f"{snippet.id}_nobg.png"), "PNG")
-    
-    return SnippetResponse(
-        id=snippet.id,
-        name=snippet.name,
-        width=snippet.width,
-        height=snippet.height,
-        has_transparent=snippet.has_transparent,
-        created_at=snippet.created_at.isoformat(),
-    )
+    try:
+        img = Image.open(img_path)
+        logger.info(f"[SNIPPET] image size: {img.size}")
+        
+        x1, y1, x2, y2 = [int(v) for v in data.bbox]
+        x1 = max(0, min(x1, img.width))
+        y1 = max(0, min(y1, img.height))
+        x2 = max(0, min(x2, img.width))
+        y2 = max(0, min(y2, img.height))
+        
+        logger.info(f"[SNIPPET] clamped bbox: [{x1}, {y1}, {x2}, {y2}]")
+        
+        if x2 <= x1 or y2 <= y1:
+            raise HTTPException(status_code=400, detail=f"Invalid bounding box after clamping: [{x1},{y1},{x2},{y2}]")
+        
+        cropped = img.crop((x1, y1, x2, y2))
+        
+        snippet = snippets_repo.create(
+            name=data.name,
+            width=cropped.width,
+            height=cropped.height,
+            has_transparent=data.remove_bg,
+        )
+        
+        cropped.save(str(SNIPPETS_DIR / f"{snippet.id}.png"), "PNG")
+        
+        if data.remove_bg:
+            nobg = _remove_white_background(cropped)
+            nobg.save(str(SNIPPETS_DIR / f"{snippet.id}_nobg.png"), "PNG")
+        
+        logger.info(f"[SNIPPET] saved snippet {snippet.id} ({cropped.width}x{cropped.height})")
+        
+        return SnippetResponse(
+            id=snippet.id,
+            name=snippet.name,
+            width=snippet.width,
+            height=snippet.height,
+            has_transparent=snippet.has_transparent,
+            created_at=snippet.created_at.isoformat(),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[SNIPPET] capture error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Capture failed: {str(e)}")
 
 
 @router.post("/upload", response_model=SnippetResponse)

@@ -3,6 +3,8 @@ Configuración del backend.
 """
 
 import os
+import contextvars
+import contextlib
 from pathlib import Path
 
 from typing import Any, Dict, List
@@ -39,17 +41,26 @@ DEFAULT_MIN_HAN_RATIO = 1.0
 DEFAULT_OCR_ENGINE = "easyocr"
 DEFAULT_OCR_MODE = "basic"
 DEFAULT_MIN_OCR_CONFIDENCE = 0.55
-# Recheck (EasyOCR EN) es muy costoso en CPU. Se puede activar en config si se necesita.
-DEFAULT_OCR_ENABLE_LABEL_RECHECK = False
+# Recheck (EasyOCR EN) puede ayudar a reducir falsos positivos.
+DEFAULT_OCR_ENABLE_LABEL_RECHECK = True
 DEFAULT_OCR_RECHECK_MAX_REGIONS_PER_PAGE = 200
 
 # InsForge
 DEFAULT_SYNC_ENABLED = True
 
 
+_CONFIG_OVERRIDE: contextvars.ContextVar[Dict[str, Any] | None] = contextvars.ContextVar(
+    "NB7X_CONFIG_OVERRIDE",
+    default=None,
+)
+
+
 def get_config() -> dict:
     """Lee la configuración persistente."""
     import json
+    override = _CONFIG_OVERRIDE.get()
+    if override is not None:
+        return dict(override)
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -57,6 +68,15 @@ def get_config() -> dict:
         except:
             return {}
     return {}
+
+
+@contextlib.contextmanager
+def use_config_snapshot(snapshot: Dict[str, Any]):
+    token = _CONFIG_OVERRIDE.set(dict(snapshot or {}))
+    try:
+        yield
+    finally:
+        _CONFIG_OVERRIDE.reset(token)
 
 
 def get_ocr_region_filters() -> List[Dict[str, Any]]:
@@ -99,10 +119,10 @@ def get_min_han_ratio() -> float:
 
 
 def get_ocr_engine() -> str:
-    """Obtiene el motor OCR a usar (easyocr o paddleocr)."""
+    """Obtiene el motor OCR a usar (easyocr, paddleocr o rapidocr)."""
     config = get_config()
     value = str(config.get("ocr_engine", DEFAULT_OCR_ENGINE) or DEFAULT_OCR_ENGINE).lower()
-    if value not in {"easyocr", "paddleocr"}:
+    if value not in {"easyocr", "paddleocr", "rapidocr"}:
         return DEFAULT_OCR_ENGINE
     return value
 

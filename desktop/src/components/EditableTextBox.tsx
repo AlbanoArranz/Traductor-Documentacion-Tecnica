@@ -9,6 +9,7 @@ interface EditableTextBoxProps {
   onUpdate: (updates: Partial<TextRegion>) => void;
   scale?: number;
   documentType?: 'schematic' | 'manual';
+  isIsolated?: boolean;
 }
 
 const HANDLE_SIZE = 8;
@@ -21,6 +22,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
   onUpdate,
   scale = 1,
   documentType = 'schematic',
+  isIsolated = false,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -35,7 +37,16 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
     done: false,
   });
 
-  const visualBbox = (isDragging || isResizing) && localBbox ? localBbox : region.bbox;
+  const baseBbox = React.useMemo(() => {
+    if (!isIsolated) return region.bbox;
+    const [x1, y1, x2, y2] = region.bbox;
+    const h = Math.max(1, y2 - y1);
+    const cy = (y1 + y2) / 2;
+    const nh = h * 1.2;
+    return [x1, cy - nh / 2, x2, cy + nh / 2];
+  }, [isIsolated, region.bbox]);
+
+  const visualBbox = (isDragging || isResizing) && localBbox ? localBbox : baseBbox;
   const [x1, y1, x2, y2] = visualBbox;
   // Calcular posición y tamaño escalados
   const sx1 = x1 * scale;
@@ -73,10 +84,10 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
         y: e.clientY,
         bbox: [...region.bbox],
       };
-      localBboxRef.current = [...region.bbox];
-      setLocalBbox([...region.bbox]);
+      localBboxRef.current = [...baseBbox];
+      setLocalBbox([...baseBbox]);
     }
-  }, [isEditing, onSelect, region.locked, region.bbox]);
+  }, [isEditing, onSelect, region.locked, baseBbox, region.bbox]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging) {
@@ -126,13 +137,31 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
         setLocalBbox(next);
       }
     }
-  }, [isDragging, onUpdate, scale]);
+  }, [isDragging, isResizing, resizeCorner, scale]);
 
   const handleMouseUp = useCallback(() => {
     if (isDragging || isResizing) {
-      const next = localBboxRef.current;
-      if (next && (next[0] !== region.bbox[0] || next[1] !== region.bbox[1] || next[2] !== region.bbox[2] || next[3] !== region.bbox[3])) {
-        onUpdate({ bbox: next });
+      const startBbox = dragStart.current.bbox; // always region.bbox at start
+      const cur = localBboxRef.current;
+      if (cur && startBbox) {
+        let saveBbox: number[];
+        if (isDragging) {
+          // For drag: apply delta to original region.bbox
+          const ddx = cur[0] - startBbox[0];
+          const ddy = cur[1] - startBbox[1];
+          saveBbox = [
+            region.bbox[0] + ddx,
+            region.bbox[1] + ddy,
+            region.bbox[2] + ddx,
+            region.bbox[3] + ddy,
+          ];
+        } else {
+          // For resize: the cur bbox was computed from startBbox (= region.bbox) deltas
+          saveBbox = cur;
+        }
+        if (saveBbox[0] !== region.bbox[0] || saveBbox[1] !== region.bbox[1] || saveBbox[2] !== region.bbox[2] || saveBbox[3] !== region.bbox[3]) {
+          onUpdate({ bbox: saveBbox });
+        }
       }
     }
 
@@ -157,6 +186,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
 
   // Resize handlers
   const createResizeHandler = (corner: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     if (region.locked) return;
     
@@ -165,10 +195,10 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
     dragStart.current = {
       x: e.clientX,
       y: e.clientY,
-      bbox: [...region.bbox], // Guardar coordenadas ORIGINALES
+      bbox: [...region.bbox], // Guardar coordenadas ORIGINALES (sin expansión)
     };
-    localBboxRef.current = [...region.bbox];
-    setLocalBbox([...region.bbox]);
+    localBboxRef.current = [...baseBbox];
+    setLocalBbox([...baseBbox]);
   };
 
   // Double click to edit
@@ -273,7 +303,9 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: region.text_align === 'left' ? 'flex-start' : region.text_align === 'right' ? 'flex-end' : 'center',
-            fontSize: region.font_size ? region.font_size * scale : Math.min(sheight * 0.5, Math.max(8, swidth / 8)),
+            fontSize: region.font_size
+              ? region.font_size * scale
+              : Math.min(sheight * 0.5, Math.max(8, swidth / 8)),
             fontFamily: region.font_family || 'Arial',
             color: textColor,
             textAlign: (region.text_align as any) || 'center',
@@ -285,7 +317,7 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
             boxSizing: 'border-box',
           }}
         >
-          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <span style={{ maxWidth: '100%', wordBreak: 'break-word', overflow: 'hidden' }}>
             {region.tgt_text || region.src_text}
           </span>
         </div>
@@ -317,75 +349,73 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
             />
           ))}
 
-          {/* Edge resize handles para modo manual o cajas grandes */}
-          {(documentType === 'manual' || sheight > 100) && (
-            <>
-              {/* N */}
-              <div
-                data-testid="text-handle-n"
-                onMouseDown={createResizeHandler('n')}
-                style={{
-                  position: 'absolute',
-                  width: HANDLE_SIZE * 2,
-                  height: HANDLE_SIZE,
-                  backgroundColor: '#2563eb',
-                  border: '1px solid white',
-                  borderRadius: 2,
-                  top: -HANDLE_SIZE/2,
-                  left: `calc(50% - ${HANDLE_SIZE}px)`,
-                  cursor: 'n-resize',
-                }}
-              />
-              {/* S */}
-              <div
-                data-testid="text-handle-s"
-                onMouseDown={createResizeHandler('s')}
-                style={{
-                  position: 'absolute',
-                  width: HANDLE_SIZE * 2,
-                  height: HANDLE_SIZE,
-                  backgroundColor: '#2563eb',
-                  border: '1px solid white',
-                  borderRadius: 2,
-                  bottom: -HANDLE_SIZE/2,
-                  left: `calc(50% - ${HANDLE_SIZE}px)`,
-                  cursor: 's-resize',
-                }}
-              />
-              {/* W */}
-              <div
-                data-testid="text-handle-w"
-                onMouseDown={createResizeHandler('w')}
-                style={{
-                  position: 'absolute',
-                  width: HANDLE_SIZE,
-                  height: HANDLE_SIZE * 2,
-                  backgroundColor: '#2563eb',
-                  border: '1px solid white',
-                  borderRadius: 2,
-                  left: -HANDLE_SIZE/2,
-                  top: `calc(50% - ${HANDLE_SIZE}px)`,
-                  cursor: 'w-resize',
-                }}
-              />
-              {/* E */}
-              <div
-                data-testid="text-handle-e"
-                onMouseDown={createResizeHandler('e')}
-                style={{
-                  position: 'absolute',
-                  width: HANDLE_SIZE,
-                  height: HANDLE_SIZE * 2,
-                  backgroundColor: '#2563eb',
-                  border: '1px solid white',
-                  borderRadius: 2,
-                  right: -HANDLE_SIZE/2,
-                  top: `calc(50% - ${HANDLE_SIZE}px)`,
-                  cursor: 'e-resize',
-                }}
-              />
-            </>
-          )}
+          {/* Edge resize handles (mid-side) */}
+          <>
+            {/* N */}
+            <div
+              data-testid="text-handle-n"
+              onMouseDown={createResizeHandler('n')}
+              style={{
+                position: 'absolute',
+                width: HANDLE_SIZE * 2,
+                height: HANDLE_SIZE,
+                backgroundColor: '#2563eb',
+                border: '1px solid white',
+                borderRadius: 2,
+                top: -HANDLE_SIZE/2,
+                left: `calc(50% - ${HANDLE_SIZE}px)`,
+                cursor: 'n-resize',
+              }}
+            />
+            {/* S */}
+            <div
+              data-testid="text-handle-s"
+              onMouseDown={createResizeHandler('s')}
+              style={{
+                position: 'absolute',
+                width: HANDLE_SIZE * 2,
+                height: HANDLE_SIZE,
+                backgroundColor: '#2563eb',
+                border: '1px solid white',
+                borderRadius: 2,
+                bottom: -HANDLE_SIZE/2,
+                left: `calc(50% - ${HANDLE_SIZE}px)`,
+                cursor: 's-resize',
+              }}
+            />
+            {/* W */}
+            <div
+              data-testid="text-handle-w"
+              onMouseDown={createResizeHandler('w')}
+              style={{
+                position: 'absolute',
+                width: HANDLE_SIZE,
+                height: HANDLE_SIZE * 2,
+                backgroundColor: '#2563eb',
+                border: '1px solid white',
+                borderRadius: 2,
+                left: -HANDLE_SIZE/2,
+                top: `calc(50% - ${HANDLE_SIZE}px)`,
+                cursor: 'w-resize',
+              }}
+            />
+            {/* E */}
+            <div
+              data-testid="text-handle-e"
+              onMouseDown={createResizeHandler('e')}
+              style={{
+                position: 'absolute',
+                width: HANDLE_SIZE,
+                height: HANDLE_SIZE * 2,
+                backgroundColor: '#2563eb',
+                border: '1px solid white',
+                borderRadius: 2,
+                right: -HANDLE_SIZE/2,
+                top: `calc(50% - ${HANDLE_SIZE}px)`,
+                cursor: 'e-resize',
+              }}
+            />
+          </>
 
           {/* Lock/Manual indicators */}
           <div
