@@ -79,7 +79,7 @@ export default function ProjectPage() {
   const [composeDirtyPages, setComposeDirtyPages] = useState<Record<number, boolean>>({})
   const autoComposeTimerRef = useRef<number | null>(null)
   // Estado para Undo/Redo
-  const { undo, redo, canUndo, canRedo } = useUndoRedo()
+  const { execute: executeUndoable, undo, redo, canUndo, canRedo } = useUndoRedo()
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -334,6 +334,78 @@ export default function ProjectPage() {
     },
   })
 
+  const undoableUpdate = (regionId: string, updates: Partial<TextRegion>) => {
+    const current = (queryClient.getQueryData<TextRegion[]>(['regions', projectId, selectedPage]) || [])
+      .find(r => r.id === regionId)
+    if (!current) {
+      updateRegionMutation.mutate({ regionId, updates })
+      return
+    }
+    const prevValues: Partial<TextRegion> = {}
+    for (const key of Object.keys(updates) as (keyof TextRegion)[]) {
+      (prevValues as any)[key] = (current as any)[key]
+    }
+    executeUndoable({
+      id: `update-${regionId}-${Date.now()}`,
+      type: 'update-region',
+      description: `Update region ${regionId}`,
+      do: () => updateRegionMutation.mutateAsync({ regionId, updates }),
+      undo: async () => {
+        await updateRegionMutation.mutateAsync({ regionId, updates: prevValues })
+      },
+      redo: () => updateRegionMutation.mutateAsync({ regionId, updates }),
+    }).catch(() => {})
+  }
+
+  const undoableDelete = (regionId: string) => {
+    const current = (queryClient.getQueryData<TextRegion[]>(['regions', projectId, selectedPage]) || [])
+      .find(r => r.id === regionId)
+    if (!current) {
+      deleteRegionMutation.mutate(regionId)
+      return
+    }
+    const snapshot = { ...current }
+    const page = snapshot.page_number ?? selectedPage
+    let currentId = regionId
+
+    executeUndoable({
+      id: `delete-${regionId}-${Date.now()}`,
+      type: 'delete-region',
+      description: `Delete region ${regionId}`,
+      do: async () => {
+        await pagesApi.deleteTextRegion(projectId!, currentId)
+        queryClient.setQueryData<TextRegion[]>(['regions', projectId, selectedPage], (old) =>
+          old ? old.filter(r => r.id !== currentId) : old
+        )
+        setSelectedRegionIds(prev => { const n = new Set(prev); n.delete(currentId); return n })
+        setComposeDirtyPages(prev => ({ ...prev, [selectedPage]: true }))
+      },
+      undo: async () => {
+        const res = await pagesApi.createTextRegion(projectId!, page, {
+          bbox: snapshot.bbox,
+          src_text: snapshot.src_text,
+          tgt_text: snapshot.tgt_text ?? undefined,
+          font_size: snapshot.font_size ?? undefined,
+          font_family: snapshot.font_family ?? undefined,
+          text_color: snapshot.text_color ?? undefined,
+          bg_color: snapshot.bg_color ?? undefined,
+          text_align: snapshot.text_align ?? undefined,
+          rotation: snapshot.rotation ?? undefined,
+          line_height: snapshot.line_height ?? undefined,
+          locked: snapshot.locked ?? undefined,
+          compose_mode: snapshot.compose_mode ?? undefined,
+          is_manual: snapshot.is_manual ?? undefined,
+          confidence: snapshot.confidence ?? undefined,
+          render_order: snapshot.render_order ?? undefined,
+        })
+        const created = res.data as TextRegion
+        currentId = created.id
+        queryClient.invalidateQueries({ queryKey: ['regions', projectId, selectedPage] })
+        setComposeDirtyPages(prev => ({ ...prev, [selectedPage]: true }))
+      },
+    }).catch(() => {})
+  }
+
   const processAllMutation = useMutation({
     mutationFn: () => jobsApi.startRenderAll(projectId!, 450),
     onSuccess: (res) => {
@@ -572,20 +644,16 @@ export default function ProjectPage() {
         // Use functional state update to get fresh selectedRegionIds
         setSelectedRegionIds(prevIds => {
           const selectedIds = Array.from(prevIds)
-          if (selectedIds.length > 0) {
-            // Set flag for multi-delete to suppress individual error alerts
-            if (selectedIds.length > 1) {
-              setIsMultiDeleting(true)
-              // Clear flag after all deletions complete
-              setTimeout(() => setIsMultiDeleting(false), 1000)
-            }
-            
+          if (selectedIds.length === 1) {
+            undoableDelete(selectedIds[0])
+          } else if (selectedIds.length > 1) {
+            setIsMultiDeleting(true)
+            setTimeout(() => setIsMultiDeleting(false), 1000)
             selectedIds.forEach(id => {
               deleteRegionMutation.mutate(id)
             })
-            return new Set()
           }
-          return prevIds
+          return selectedIds.length > 0 ? new Set() : prevIds
         })
         return
       }
@@ -991,11 +1059,26 @@ export default function ProjectPage() {
                 tool={drawingTool}
                 onToolChange={setDrawingTool}
                 strokeColor={drawingStrokeColor}
-                onStrokeColorChange={setDrawingStrokeColor}
+                onStrokeColorChange={(color) => {
+                  setDrawingStrokeColor(color)
+                  selectedDrawingIds.forEach(id =>
+                    updateDrawingMutation.mutate({ id, updates: { stroke_color: color } })
+                  )
+                }}
                 strokeWidth={drawingStrokeWidth}
-                onStrokeWidthChange={setDrawingStrokeWidth}
+                onStrokeWidthChange={(width) => {
+                  setDrawingStrokeWidth(width)
+                  selectedDrawingIds.forEach(id =>
+                    updateDrawingMutation.mutate({ id, updates: { stroke_width: width } })
+                  )
+                }}
                 fillColor={drawingFillColor}
-                onFillColorChange={setDrawingFillColor}
+                onFillColorChange={(color) => {
+                  setDrawingFillColor(color)
+                  selectedDrawingIds.forEach(id =>
+                    updateDrawingMutation.mutate({ id, updates: { fill_color: color } })
+                  )
+                }}
                 imageModeActive={imageModeActive}
                 onImageModeToggle={() => setImageModeActive(!imageModeActive)}
                 onClose={async () => {
@@ -1131,12 +1214,13 @@ export default function ProjectPage() {
                           setSelectedRegionIds(new Set([region.id]))
                         }
                       }}
-                      onUpdate={(updates) =>
-                        updateRegionMutation.mutate({
-                          regionId: region.id,
-                          updates,
-                        })
-                      }
+                      onUpdate={(updates) => {
+                        if ('tgt_text' in updates || 'locked' in updates || 'bbox' in updates) {
+                          undoableUpdate(region.id, updates)
+                        } else {
+                          updateRegionMutation.mutate({ regionId: region.id, updates })
+                        }
+                      }}
                       documentType={project?.document_type}
                     />
                   ))}
@@ -1469,10 +1553,7 @@ export default function ProjectPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      updateRegionMutation.mutate({
-                        regionId: region.id,
-                        updates: { locked: !region.locked },
-                      })
+                      undoableUpdate(region.id, { locked: !region.locked })
                     }}
                     className={`p-1 rounded ${region.locked ? 'text-primary-600' : 'text-gray-400'}`}
                     title={region.locked ? 'Desbloquear' : 'Bloquear'}
@@ -1482,7 +1563,7 @@ export default function ProjectPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      deleteRegionMutation.mutate(region.id)
+                      undoableDelete(region.id)
                     }}
                     className="p-1 rounded text-gray-400 hover:text-red-600"
                     title="Eliminar región"

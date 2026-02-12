@@ -55,6 +55,8 @@ export function DrawingCanvas({
   const [textPosition, setTextPosition] = useState<{ x: number; y: number } | null>(null)
   const [polylinePoints, setPolylinePoints] = useState<{ x: number; y: number }[]>([])
   const [lastClickTime, setLastClickTime] = useState<number | null>(null)
+  const [marqueeStart, setMarqueeStart] = useState<{ x: number; y: number } | null>(null)
+  const [marqueeEnd, setMarqueeEnd] = useState<{ x: number; y: number } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   const getScaledPoint = (e: React.MouseEvent) => {
@@ -95,7 +97,7 @@ export function DrawingCanvas({
     }
 
     if (d.element_type === 'polyline' && d.points.length >= 4 && d.points.length % 2 === 0) {
-      const padding = Math.max((d.stroke_width || strokeWidth) / 2, 6)
+      const padding = Math.max((d.stroke_width || strokeWidth) / 2, 12)
       for (let i = 0; i < d.points.length - 2; i += 2) {
         const x1 = d.points[i]
         const y1 = d.points[i + 1]
@@ -149,6 +151,31 @@ export function DrawingCanvas({
     return null
   }
 
+  const _getDrawingBBox = (d: DrawingElement): { x1: number; y1: number; x2: number; y2: number } | null => {
+    if ((d.element_type === 'line' || d.element_type === 'rect' || d.element_type === 'circle' || d.element_type === 'image') && d.points.length >= 4) {
+      const [px1, py1, px2, py2] = d.points
+      return { x1: Math.min(px1, px2), y1: Math.min(py1, py2), x2: Math.max(px1, px2), y2: Math.max(py1, py2) }
+    }
+    if (d.element_type === 'polyline' && d.points.length >= 4) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      for (let i = 0; i < d.points.length; i += 2) {
+        minX = Math.min(minX, d.points[i])
+        maxX = Math.max(maxX, d.points[i])
+        minY = Math.min(minY, d.points[i + 1])
+        maxY = Math.max(maxY, d.points[i + 1])
+      }
+      return { x1: minX, y1: minY, x2: maxX, y2: maxY }
+    }
+    if (d.element_type === 'text' && d.points.length >= 2 && d.text) {
+      const [tx, ty] = d.points
+      const fontSize = d.font_size || 14
+      const w = d.text.length * fontSize * 0.6 + 10
+      const h = fontSize + 10
+      return { x1: tx, y1: ty - h, x2: tx + w, y2: ty }
+    }
+    return null
+  }
+
   const finishPolyline = useCallback(() => {
     setPolylinePoints(currentPoints => {
       if (currentPoints.length >= 2) {
@@ -176,6 +203,9 @@ export function DrawingCanvas({
       const point = getScaledPoint(e)
       const hitId = _hitTestTopFirst(point)
       if (!hitId) {
+        // Start marquee selection
+        setMarqueeStart(point)
+        setMarqueeEnd(point)
         onDrawingSelect([])
         return
       }
@@ -294,6 +324,9 @@ export function DrawingCanvas({
       const dy = current.y - resizeStartPoint.y
       // Acumular offset local sin llamar API
       setResizeOffset({ dx, dy })
+    } else if (marqueeStart) {
+      const current = getScaledPoint(e)
+      setMarqueeEnd(current)
     }
   }
 
@@ -353,6 +386,24 @@ export function DrawingCanvas({
       return
     }
     
+    if (marqueeStart && marqueeEnd) {
+      const sx1 = Math.min(marqueeStart.x, marqueeEnd.x)
+      const sy1 = Math.min(marqueeStart.y, marqueeEnd.y)
+      const sx2 = Math.max(marqueeStart.x, marqueeEnd.x)
+      const sy2 = Math.max(marqueeStart.y, marqueeEnd.y)
+      if (sx2 - sx1 > 3 || sy2 - sy1 > 3) {
+        const ids = drawings.filter(d => {
+          const bb = _getDrawingBBox(d)
+          if (!bb) return false
+          return !(bb.x2 < sx1 || bb.x1 > sx2 || bb.y2 < sy1 || bb.y1 > sy2)
+        }).map(d => d.id)
+        onDrawingSelect(ids)
+      }
+      setMarqueeStart(null)
+      setMarqueeEnd(null)
+      return
+    }
+
     if (!isDrawing || !startPoint || !currentPoint) {
       setIsDrawing(false)
       return
@@ -562,6 +613,36 @@ export function DrawingCanvas({
       )
     }
 
+    if (d.element_type === 'polyline' && d.points.length >= 4 && d.points.length % 2 === 0) {
+      const pts: string[] = []
+      for (let i = 0; i < d.points.length; i += 2) {
+        pts.push(`${d.points[i] * scale},${d.points[i + 1] * scale}`)
+      }
+      return (
+        <polyline
+          key={d.id}
+          data-testid="drawing"
+          data-drawing-id={d.id}
+          data-selected={isSelected ? 'true' : 'false'}
+          points={pts.join(' ')}
+          stroke={d.stroke_color}
+          strokeWidth={d.stroke_width}
+          fill="none"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            if (tool === 'select' && selectedDrawingIds.includes(d.id) && onDrawingUpdate) {
+              setIsDragging(true)
+              setDragStart(getScaledPoint(e))
+            }
+          }}
+          className={isSelected ? 'drawing-selected' : ''}
+        />
+      )
+    }
+
     if (d.element_type === 'rect' || d.element_type === 'circle') {
       const [x1, y1, x2, y2] = d.points
       if (d.element_type === 'circle') {
@@ -710,6 +791,14 @@ export function DrawingCanvas({
             cy = ((y1 + y2) / 2) * scale
             rx = (Math.abs(x2 - x1) / 2 + 6) * scale
             ry = (Math.abs(y2 - y1) / 2 + 6) * scale
+          } else if (selected.element_type === 'polyline' && selected.points.length >= 4) {
+            const bb = _getDrawingBBox(selected)
+            if (bb) {
+              cx = ((bb.x1 + bb.x2) / 2) * scale
+              cy = ((bb.y1 + bb.y2) / 2) * scale
+              rx = (Math.abs(bb.x2 - bb.x1) / 2 + 6) * scale
+              ry = (Math.abs(bb.y2 - bb.y1) / 2 + 6) * scale
+            }
           } else if (selected.element_type === 'text' && selected.points.length >= 2) {
             const [x, y] = selected.points
             const textWidth = ((selected.text?.length || 0) * (selected.font_size || 14) * 0.6 + 10) * scale
@@ -720,8 +809,8 @@ export function DrawingCanvas({
             ry = textHeight / 2 + 6
           }
 
-          // Solo mostrar handles para selección simple (1 elemento)
-          const showHandles = selectedDrawingIds.length === 1 && selectedDrawingIds[0] === id
+          // Solo mostrar handles para selección simple (1 elemento), excluir polylines (resize las corrompería)
+          const showHandles = selectedDrawingIds.length === 1 && selectedDrawingIds[0] === id && selected.element_type !== 'polyline'
 
           if (showHandles && onDrawingUpdate) {
             handles.push(
@@ -945,6 +1034,18 @@ export function DrawingCanvas({
         })}
         {renderSelectionHighlight()}
         {renderPreview()}
+        {marqueeStart && marqueeEnd && (
+          <rect
+            x={Math.min(marqueeStart.x, marqueeEnd.x) * scale}
+            y={Math.min(marqueeStart.y, marqueeEnd.y) * scale}
+            width={Math.abs(marqueeEnd.x - marqueeStart.x) * scale}
+            height={Math.abs(marqueeEnd.y - marqueeStart.y) * scale}
+            stroke="#2563eb"
+            strokeWidth={1}
+            fill="rgba(37, 99, 235, 0.1)"
+            strokeDasharray="4,4"
+          />
+        )}
       </svg>
 
       {editingTextId && (

@@ -82,6 +82,18 @@ class TextRegionCreate(BaseModel):
     bbox: List[float]
     src_text: str = ""
     tgt_text: str = ""
+    font_size: Optional[float] = None
+    font_family: Optional[str] = None
+    text_color: Optional[str] = None
+    bg_color: Optional[str] = None
+    text_align: Optional[str] = None
+    rotation: Optional[float] = None
+    line_height: Optional[float] = None
+    locked: Optional[bool] = None
+    compose_mode: Optional[str] = None
+    is_manual: Optional[bool] = None
+    confidence: Optional[float] = None
+    render_order: Optional[int] = None
 
 
 @router.get("", response_model=List[PageResponse])
@@ -343,14 +355,22 @@ async def create_text_region(
         project_id=project_id,
         page_number=page_number,
         bbox=data.bbox,
-        bbox_normalized=[0, 0, 0, 0],  # Se calculará si es necesario
+        bbox_normalized=[0, 0, 0, 0],
         src_text=data.src_text,
         tgt_text=data.tgt_text or data.src_text,
-        confidence=1.0,
-        locked=False,
+        confidence=data.confidence if data.confidence is not None else 1.0,
+        locked=data.locked if data.locked is not None else False,
         needs_review=False,
-        compose_mode="patch",
-        is_manual=True,
+        compose_mode=data.compose_mode or "patch",
+        is_manual=data.is_manual if data.is_manual is not None else True,
+        font_size=data.font_size,
+        font_family=data.font_family or "Arial",
+        text_color=data.text_color or "#000000",
+        bg_color=data.bg_color,
+        text_align=data.text_align or "center",
+        rotation=data.rotation or 0.0,
+        line_height=data.line_height or 1.0,
+        render_order=data.render_order or 0,
     )
     
     # Guardar en repositorio

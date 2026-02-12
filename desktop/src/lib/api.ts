@@ -135,7 +135,12 @@ export const pagesApi = {
     api.post(`/projects/${projectId}/pages/${pageNumber}/ocr?dpi=${dpi}`),
   getTextRegions: (projectId: string, pageNumber: number) =>
     api.get<TextRegion[]>(`/projects/${projectId}/pages/${pageNumber}/text-regions`),
-  createTextRegion: (projectId: string, pageNumber: number, data: { bbox: number[]; src_text?: string; tgt_text?: string }) =>
+  createTextRegion: (projectId: string, pageNumber: number, data: {
+    bbox: number[]; src_text?: string; tgt_text?: string;
+    font_size?: number | null; font_family?: string; text_color?: string; bg_color?: string | null;
+    text_align?: string; rotation?: number; line_height?: number;
+    locked?: boolean; compose_mode?: string; is_manual?: boolean; confidence?: number; render_order?: number;
+  }) =>
     api.post<TextRegion>(`/projects/${projectId}/pages/${pageNumber}/text-regions`, data),
   updateTextRegion: (projectId: string, regionId: string, data: Partial<TextRegion>) =>
     api.patch<TextRegion>(`/projects/${projectId}/pages/text-regions/${regionId}`, data),
