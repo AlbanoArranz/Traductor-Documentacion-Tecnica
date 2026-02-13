@@ -232,18 +232,26 @@ export const drawingsApi = {
     api.delete(`/projects/${projectId}/pages/drawings/${drawingId}`),
 }
 
+export interface OcrDetection {
+  bbox: number[]  // [x1, y1, x2, y2] relativas al recorte
+  text: string
+  confidence: number
+}
+
 export interface Snippet {
   id: string
   name: string
   width: number
   height: number
   has_transparent: boolean
+  text_erased: boolean
   created_at: string
+  ocr_detections: OcrDetection[]
 }
 
 export const snippetsApi = {
   list: () => api.get<Snippet[]>('/snippets'),
-  capture: (data: { project_id: string; page_number: number; bbox: number[]; name: string; remove_bg: boolean }) =>
+  capture: (data: { project_id: string; page_number: number; bbox: number[]; name: string; remove_bg: boolean; run_ocr?: boolean; erase_ocr_text?: boolean }) =>
     api.post<Snippet>('/snippets/capture', data),
   upload: (file: File, name: string, removeBg: boolean) => {
     const formData = new FormData()
@@ -256,5 +264,7 @@ export const snippetsApi = {
     `${apiBaseUrl}/snippets/${snippetId}/image?transparent=${transparent}`,
   getBase64: (snippetId: string, transparent = false) =>
     api.get<{ base64: string; width: number; height: number }>(`/snippets/${snippetId}/base64?transparent=${transparent}`),
+  updateOcrDetections: (snippetId: string, ocr_detections: OcrDetection[]) =>
+    api.patch<Snippet>(`/snippets/${snippetId}/ocr-detections`, { ocr_detections }),
   delete: (snippetId: string) => api.delete(`/snippets/${snippetId}`),
 }

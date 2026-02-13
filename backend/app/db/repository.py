@@ -432,6 +432,8 @@ class SnippetsRepository:
                         width=item["width"],
                         height=item["height"],
                         has_transparent=item.get("has_transparent", False),
+                        ocr_detections=item.get("ocr_detections", []),
+                        text_erased=item.get("text_erased", False),
                         created_at=created_at,
                     )
             except Exception:
@@ -446,12 +448,14 @@ class SnippetsRepository:
                     "width": s.width,
                     "height": s.height,
                     "has_transparent": s.has_transparent,
+                    "ocr_detections": s.ocr_detections,
+                    "text_erased": s.text_erased,
                     "created_at": s.created_at.isoformat(),
                 }
                 for s in self._cache.values()
             ], f, ensure_ascii=False, indent=2)
     
-    def create(self, name: str, width: int, height: int, has_transparent: bool = False) -> Snippet:
+    def create(self, name: str, width: int, height: int, has_transparent: bool = False, ocr_detections: list = None, text_erased: bool = False) -> Snippet:
         snippet_id = str(uuid.uuid4())
         snippet = Snippet(
             id=snippet_id,
@@ -459,6 +463,8 @@ class SnippetsRepository:
             width=width,
             height=height,
             has_transparent=has_transparent,
+            ocr_detections=ocr_detections or [],
+            text_erased=text_erased,
         )
         self._cache[snippet_id] = snippet
         self._save()
@@ -470,6 +476,14 @@ class SnippetsRepository:
     def list_all(self) -> List[Snippet]:
         return sorted(self._cache.values(), key=lambda s: s.created_at, reverse=True)
     
+    def update_ocr_detections(self, snippet_id: str, ocr_detections: list) -> Optional[Snippet]:
+        snippet = self._cache.get(snippet_id)
+        if not snippet:
+            return None
+        snippet.ocr_detections = ocr_detections
+        self._save()
+        return snippet
+
     def delete(self, snippet_id: str) -> bool:
         if snippet_id in self._cache:
             del self._cache[snippet_id]

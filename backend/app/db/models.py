@@ -113,4 +113,6 @@ class Snippet:
     width: int
     height: int
     has_transparent: bool = False
+    ocr_detections: list = field(default_factory=list)  # [{bbox, text, confidence}]
+    text_erased: bool = False
     created_at: datetime = field(default_factory=datetime.now)

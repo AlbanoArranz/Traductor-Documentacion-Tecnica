@@ -29,6 +29,13 @@ if (fs.existsSync(OUTPUT_DIR)) {
 }
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
+// Eliminar spec cacheado para forzar regeneración completa
+const SPEC_FILE = path.join(BACKEND_DIR, 'main.spec');
+if (fs.existsSync(SPEC_FILE)) {
+  fs.rmSync(SPEC_FILE);
+  console.log('Removed cached main.spec');
+}
+
 // Ejecutar PyInstaller con run.py como entry point
 console.log('\nRunning PyInstaller...');
 
@@ -71,8 +78,17 @@ const pyinstallerCmd = [
   '--collect-all=paddleocr',
   '--collect-all=paddle',
   '--collect-all=paddlepaddle',
+  // rapidocr (import dinámico en ocr_service_rapid.py)
+  '--collect-all=rapidocr_onnxruntime',
+  '--hidden-import=rapidocr_onnxruntime',
+  // onnxruntime (dependencia de rapidocr)
+  '--collect-all=onnxruntime',
+  // deepl (import dinámico en translate_service.py)
+  '--hidden-import=deepl',
   // app modules
   '--collect-submodules=app',
+  // data files: defaults/ seeds para primera ejecución
+  `--add-data="${path.join(BACKEND_DIR, 'app', 'defaults')}${path.delimiter}app/defaults"`,
   // paths
   `--paths="${BACKEND_DIR}"`,
   `"${path.join(BACKEND_DIR, 'run.py')}"`,
@@ -83,8 +99,22 @@ try {
     cwd: BACKEND_DIR,
     stdio: 'inherit',
   });
+  // Verificación post-build: paquetes críticos en _internal/
+  const internalDir = path.join(OUTPUT_DIR, 'main', '_internal');
+  const criticalPaths = [
+    { name: 'rapidocr_onnxruntime', p: path.join(internalDir, 'rapidocr_onnxruntime') },
+    { name: 'onnxruntime', p: path.join(internalDir, 'onnxruntime') },
+    { name: 'app/defaults', p: path.join(internalDir, 'app', 'defaults') },
+  ];
+  const missing = criticalPaths.filter(c => !fs.existsSync(c.p));
+  if (missing.length > 0) {
+    console.error('\n❌ Post-build check failed! Missing critical packages:');
+    missing.forEach(m => console.error(`   - ${m.name} (expected: ${m.p})`));
+    process.exit(1);
+  }
   console.log('\n✅ Backend built successfully!');
   console.log(`Output: ${OUTPUT_DIR}`);
+  console.log('Post-build check: all critical packages present.');
 } catch (error) {
   console.error('\n❌ Build failed:', error.message);
   process.exit(1);

@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, Upload, Scissors, ImageIcon } from 'lucide-react'
 import { snippetsApi } from '../lib/api'
-import type { Snippet } from '../lib/api'
+import type { Snippet, OcrDetection } from '../lib/api'
 import toast from 'react-hot-toast'
 
 interface SnippetLibraryPanelProps {
@@ -129,25 +129,116 @@ function SnippetCard({
   onSelect: (id: string, transparent: boolean) => void
   onDelete: (id: string) => void
 }) {
+  const queryClient = useQueryClient()
   const [useTransparent, setUseTransparent] = useState(false)
+  const [editingIdx, setEditingIdx] = useState<number | null>(null)
+  const [editText, setEditText] = useState('')
+  const [imgH, setImgH] = useState(0)
+  const imgRef = useRef<HTMLImageElement>(null)
   const imageUrl = snippetsApi.getImageUrl(snippet.id, useTransparent)
+  const detections = snippet.ocr_detections || []
+
+  const updateMutation = useMutation({
+    mutationFn: (newDets: OcrDetection[]) =>
+      snippetsApi.updateOcrDetections(snippet.id, newDets),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['snippets'] }),
+    onError: () => toast.error('Error al guardar texto'),
+  })
+
+  const saveEdit = (idx: number) => {
+    if (editText.trim() === detections[idx].text) {
+      setEditingIdx(null)
+      return
+    }
+    const updated = detections.map((d, i) =>
+      i === idx ? { ...d, text: editText.trim() || d.text } : d
+    )
+    updateMutation.mutate(updated)
+    setEditingIdx(null)
+  }
 
   return (
     <div className="group relative border rounded overflow-hidden bg-white hover:border-primary-400 transition-colors">
       <div
         className="aspect-square bg-gray-50 flex items-center justify-center cursor-pointer overflow-hidden"
-        onClick={() => onSelect(snippet.id, useTransparent)}
-        title={`Clic para insertar: ${snippet.name}`}
+        onClick={() => editingIdx === null && onSelect(snippet.id, useTransparent)}
+        title={editingIdx === null ? `Clic para insertar: ${snippet.name}` : undefined}
         style={useTransparent ? { backgroundImage: 'linear-gradient(45deg, #e0e0e0 25%, transparent 25%, transparent 75%, #e0e0e0 75%), linear-gradient(45deg, #e0e0e0 25%, transparent 25%, transparent 75%, #e0e0e0 75%)', backgroundSize: '8px 8px', backgroundPosition: '0 0, 4px 4px' } : undefined}
       >
-        <img
-          src={imageUrl}
-          alt={snippet.name}
-          className="max-w-full max-h-full object-contain"
-          draggable={false}
-        />
+        <div className="relative inline-block max-w-full max-h-full">
+          <img
+            ref={imgRef}
+            src={imageUrl}
+            alt={snippet.name}
+            className="block max-w-full max-h-full"
+            draggable={false}
+            onLoad={() => {
+              if (imgRef.current) setImgH(imgRef.current.clientHeight)
+            }}
+          />
+          {detections.length > 0 && imgH > 0 && detections.map((det, i) => {
+            const [x1, y1, x2, y2] = det.bbox
+            const left = (x1 / snippet.width) * 100
+            const top = (y1 / snippet.height) * 100
+            const w = ((x2 - x1) / snippet.width) * 100
+            const h = ((y2 - y1) / snippet.height) * 100
+            const pxFontSize = Math.max(4, Math.round(imgH * ((y2 - y1) / snippet.height) * 0.85))
+            const isEditing = editingIdx === i
+            return (
+              <div
+                key={i}
+                className={`absolute flex items-center overflow-hidden ${isEditing ? 'border border-blue-500 bg-white z-10' : 'bg-white'}`}
+                style={{
+                  left: `${left}%`,
+                  top: `${top}%`,
+                  width: `${w}%`,
+                  height: `${h}%`,
+                }}
+                title={isEditing ? undefined : `Clic para editar: ${det.text}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!isEditing) {
+                    setEditingIdx(i)
+                    setEditText(det.text)
+                  }
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onBlur={() => saveEdit(i)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveEdit(i)
+                      if (e.key === 'Escape') setEditingIdx(null)
+                    }}
+                    className="w-full h-full bg-white text-blue-900 px-px outline-none border-none"
+                    style={{ fontSize: `${pxFontSize}px`, lineHeight: 1 }}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span
+                    className="block text-blue-800 truncate px-px pointer-events-none"
+                    style={{ fontSize: `${pxFontSize}px`, lineHeight: 1 }}
+                  >
+                    {det.text}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
-      <div className="px-1.5 py-1 text-[10px] text-gray-600 truncate">{snippet.name}</div>
+      <div className="px-1.5 py-1 text-[10px] text-gray-600 truncate">
+        {snippet.name}
+        {detections.length > 0 && (
+          <span className="ml-1 text-blue-500" title={`${detections.length} textos detectados`}>
+            ({detections.length})
+          </span>
+        )}
+      </div>
       {snippet.has_transparent && (
         <label
           className="absolute top-1 left-1 flex items-center gap-0.5 bg-white/80 rounded px-1 py-0.5 text-[9px] text-gray-600"
@@ -161,6 +252,11 @@ function SnippetCard({
           />
           Sin fondo
         </label>
+      )}
+      {snippet.text_erased && (
+        <span className="absolute bottom-7 left-1 bg-orange-100/90 text-orange-700 rounded px-1 py-0.5 text-[9px] font-medium">
+          Sin texto
+        </span>
       )}
       <button
         onClick={(e) => {

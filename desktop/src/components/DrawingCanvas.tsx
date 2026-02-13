@@ -852,6 +852,7 @@ export function DrawingCanvas({
                 <rect
                   key={`${id}-p1`}
                   data-testid="drawing-handle-nw"
+                  data-drawing-id={id}
                   x={lx1 * scale - 5} y={ly1 * scale - 5} width={10} height={10} fill="#2563eb" rx={5}
                   style={{ cursor: 'crosshair', pointerEvents: 'all' }}
                   onMouseDown={(e) => {
@@ -866,6 +867,7 @@ export function DrawingCanvas({
                 <rect
                   key={`${id}-p2`}
                   data-testid="drawing-handle-se"
+                  data-drawing-id={id}
                   x={lx2 * scale - 5} y={ly2 * scale - 5} width={10} height={10} fill="#2563eb" rx={5}
                   style={{ cursor: 'crosshair', pointerEvents: 'all' }}
                   onMouseDown={(e) => {
@@ -884,6 +886,7 @@ export function DrawingCanvas({
                 <rect 
                   key={`${id}-nw`}
                   data-testid="drawing-handle-nw"
+                  data-drawing-id={id}
                   x={cx - rx - 4} y={cy - ry - 4} width={8} height={8} fill="#2563eb" 
                   style={{ cursor: 'nw-resize' }}
                   onMouseDown={(e) => {
@@ -898,6 +901,7 @@ export function DrawingCanvas({
                 <rect 
                   key={`${id}-ne`}
                   data-testid="drawing-handle-ne"
+                  data-drawing-id={id}
                   x={cx + rx - 4} y={cy - ry - 4} width={8} height={8} fill="#2563eb" 
                   style={{ cursor: 'ne-resize' }}
                   onMouseDown={(e) => {
@@ -912,6 +916,7 @@ export function DrawingCanvas({
                 <rect 
                   key={`${id}-sw`}
                   data-testid="drawing-handle-sw"
+                  data-drawing-id={id}
                   x={cx - rx - 4} y={cy + ry - 4} width={8} height={8} fill="#2563eb" 
                   style={{ cursor: 'sw-resize' }}
                   onMouseDown={(e) => {
@@ -926,6 +931,7 @@ export function DrawingCanvas({
                 <rect 
                   key={`${id}-se`}
                   data-testid="drawing-handle-se"
+                  data-drawing-id={id}
                   x={cx + rx - 4} y={cy + ry - 4} width={8} height={8} fill="#2563eb" 
                   style={{ cursor: 'se-resize' }}
                   onMouseDown={(e) => {
