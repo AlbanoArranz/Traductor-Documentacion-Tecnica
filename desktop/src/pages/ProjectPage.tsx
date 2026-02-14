@@ -13,7 +13,7 @@ import {
   drawingsApi,
   snippetsApi,
 } from '../lib/api'
-import type { TextRegion, OcrRegionFilter, DrawingElement } from '../lib/api'
+import type { TextRegion, OcrRegionFilter, DrawingElement, Snippet } from '../lib/api'
 import { EditableTextBox } from '../components/EditableTextBox'
 import { RegionPropertiesPanel } from '../components/RegionPropertiesPanel'
 import { HelpMenu } from '../components/HelpMenu'
@@ -21,6 +21,7 @@ import { DrawingCanvas, type DrawingTool } from '../components/DrawingCanvas'
 import { DrawingToolbar } from '../components/DrawingToolbar'
 import { DrawingOverlay } from '../components/DrawingOverlay'
 import { SnippetLibraryPanel } from '../components/SnippetLibraryPanel'
+import { SnippetEditorModal } from '../components/SnippetEditorModal'
 import { CaptureDialog } from '../components/CaptureDialog'
 import { useUndoRedo } from '../lib/undoRedo'
 import toast from 'react-hot-toast'
@@ -75,8 +76,9 @@ export default function ProjectPage() {
   // Estado para librería de imágenes
   const [imageModeActive, setImageModeActive] = useState(false)
   const [captureDialogBbox, setCaptureDialogBbox] = useState<number[] | null>(null)
-  const [placingSnippetData, setPlacingSnippetData] = useState<{ base64: string; width: number; height: number } | null>(null)
+  const [placingSnippetData, setPlacingSnippetData] = useState<{ base64: string; width: number; height: number; snippetId: string } | null>(null)
   const [composeDirtyPages, setComposeDirtyPages] = useState<Record<number, boolean>>({})
+  const [editingSnippet, setEditingSnippet] = useState<Snippet | null>(null)
   const autoComposeTimerRef = useRef<number | null>(null)
   // Estado para Undo/Redo
   const { execute: executeUndoable, undo, redo, canUndo, canRedo } = useUndoRedo()
@@ -96,8 +98,13 @@ export default function ProjectPage() {
   const { data: regions } = useQuery({
     queryKey: ['regions', projectId, selectedPage],
     queryFn: () => pagesApi.getTextRegions(projectId!, selectedPage).then(res => res.data),
-    enabled: !!projectId,
+    enabled: !!projectId && selectedPage != null,
   })
+
+  const selectedRegion = useMemo(() => {
+    if (selectedRegionIds.size !== 1 || !regions) return null
+    return regions.find((r) => selectedRegionIds.has(r.id)) ?? null
+  }, [selectedRegionIds, regions])
 
   const isolatedRegionIds = useMemo(() => {
     const out = new Set<string>()
@@ -680,18 +687,6 @@ export default function ProjectPage() {
           break
         default:
           return
-      }
-      
-      e.preventDefault()
-      
-      // Move all selected regions
-      const selectedRegions = (regions || []).filter(r => selectedRegionIds.has(r.id))
-      selectedRegions.forEach(region => {
-        const [x1, y1, x2, y2] = region.bbox
-        const newBbox = [x1 + dx, y1 + dy, x2 + dx, y2 + dy]
-        
-        updateRegionMutation.mutate({
-          regionId: region.id,
           updates: { bbox: newBbox },
         })
       })
@@ -1279,6 +1274,7 @@ export default function ProjectPage() {
                       font_family: 'Arial',
                       text_color: '#000000',
                       image_data: placingSnippetData.base64,
+                      source_snippet_id: placingSnippetData.snippetId,
                     })
                     setPlacingSnippetData(null)
                     setDrawingTool('select')
@@ -1307,7 +1303,7 @@ export default function ProjectPage() {
               onSnippetSelect={async (snippetId, transparent) => {
                 try {
                   const res = await snippetsApi.getBase64(snippetId, transparent)
-                  setPlacingSnippetData(res.data)
+                  setPlacingSnippetData({ ...res.data, snippetId })
                   setDrawingTool('place_snippet')
                   toast.success('Haz clic en la página para colocar la imagen')
                 } catch (e) {
@@ -1318,6 +1314,7 @@ export default function ProjectPage() {
               onCaptureStart={() => {
                 setDrawingTool('capture')
               }}
+              onSnippetEdit={(snippet) => setEditingSnippet(snippet)}
             />
           ) : (
           <>
@@ -1619,10 +1616,7 @@ export default function ProjectPage() {
       )}
 
       {/* Region edit panel - solo muestra cuando hay exactamente 1 seleccionada */}
-      {selectedRegionIds.size === 1 && (() => {
-        const selectedRegion = regions?.find(r => selectedRegionIds.has(r.id))
-        if (!selectedRegion) return null
-        return (
+      {selectedRegion && (
         <div className="fixed right-4 top-20 w-80 z-50">
           <RegionPropertiesPanel
             region={selectedRegion}
@@ -1679,8 +1673,4 @@ export default function ProjectPage() {
             }}
           />
         </div>
-        )
-      })()}
-    </div>
-  )
-}
+      )}

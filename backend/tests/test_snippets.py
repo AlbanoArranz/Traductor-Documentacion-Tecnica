@@ -9,6 +9,7 @@ Para evitarlo, los tests de API se ejecutan con captura desactivada (-s).
 
 import io
 import json
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,7 +36,9 @@ def repo(snippets_dir):
     r.INDEX_FILE = snippets_dir / "index.json"
     r._cache = {}
     # Parchear SNIPPETS_DIR para que delete() borre del sitio correcto
-    with patch("app.db.repository.SNIPPETS_DIR", snippets_dir):
+    with patch("app.db.repository.SNIPPETS_DIR", snippets_dir), \
+         patch("app.services.snippet_service.SNIPPETS_DIR", snippets_dir), \
+         patch("app.services.snippet_service.snippets_repo", r):
         yield r, snippets_dir
 
 
@@ -131,6 +134,51 @@ class TestSnippetsRepository:
         items = r.list_all()
         assert items[0].name == "New"  # Más reciente primero
 
+    def test_lazy_migration_sets_current_version(self, repo):
+        r, snippets_dir = repo
+        legacy = [
+            {
+                "id": "legacy",
+                "name": "Legacy",
+                "width": 10,
+                "height": 10,
+                "has_transparent": False,
+                "ocr_detections": [],
+                "text_erased": False,
+                "created_at": datetime.now().isoformat(),
+            }
+        ]
+        (snippets_dir / "index.json").write_text(json.dumps(legacy, ensure_ascii=False))
+        r._cache = {}
+        r._meta_cache = {}
+        r._load()
+        snippet = r.get("legacy")
+        assert snippet is not None
+        assert snippet.current_version == 1
+
+    def test_load_save_snippet_meta_roundtrip(self, repo):
+        r, snippets_dir = repo
+        snippet = r.create(name="Meta", width=30, height=30)
+        meta_path = snippets_dir / f"{snippet.id}_meta.json"
+        assert meta_path.exists()
+        meta = r.load_snippet_meta(snippet.id)
+        assert meta["versions"][0]["version"] == 1
+        meta["ops"].append({"type": "remove_bg"})
+        r.save_snippet_meta(snippet.id, meta)
+        reloaded = r.load_snippet_meta(snippet.id)
+        assert reloaded["ops"] == meta["ops"]
+
+    def test_delete_cleans_meta_and_versions(self, repo):
+        r, snippets_dir = repo
+        snippet = r.create(name="Clean", width=40, height=40)
+        meta_path = snippets_dir / f"{snippet.id}_meta.json"
+        version_path = snippets_dir / f"{snippet.id}_v2.png"
+        meta_path.write_text(meta_path.read_text(encoding="utf-8"))  # ensure file exists
+        version_path.write_bytes(b"fake")
+        assert r.delete(snippet.id) is True
+        assert not meta_path.exists()
+        assert not version_path.exists()
+
 
 # ---------- Tests de eliminación de fondo ----------
 
@@ -190,7 +238,9 @@ class TestSnippetsAPI:
         test_repo._cache = {}
         
         with patch("app.api.snippets.SNIPPETS_DIR", snippets_dir), \
-             patch("app.api.snippets.snippets_repo", test_repo):
+             patch("app.api.snippets.snippets_repo", test_repo), \
+             patch("app.services.snippet_service.SNIPPETS_DIR", snippets_dir), \
+             patch("app.services.snippet_service.snippets_repo", test_repo):
             from app.main import app
             from fastapi.testclient import TestClient
             self.client = TestClient(app)

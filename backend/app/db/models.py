@@ -102,7 +102,16 @@ class DrawingElement:
     font_family: str = "Arial"
     text_color: str = "#000000"
     image_data: Optional[str] = None  # base64 PNG para type='image'
+    source_snippet_id: Optional[str] = None  # ID del snippet origen (para propagación)
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class SnippetVersionMeta:
+    version: int
+    created_at: datetime
+    comment: str = ""
+    checksum: str = ""
 
 
 @dataclass
@@ -116,3 +125,4 @@ class Snippet:
     ocr_detections: list = field(default_factory=list)  # [{bbox, text, confidence}]
     text_erased: bool = False
     created_at: datetime = field(default_factory=datetime.now)
+    current_version: int = 1

@@ -218,6 +218,7 @@ export interface DrawingElement {
   font_family: string
   text_color: string
   image_data: string | null
+  source_snippet_id?: string | null
   created_at: string
 }
 
@@ -238,6 +239,24 @@ export interface OcrDetection {
   confidence: number
 }
 
+export type SnippetOp =
+  | { type: 'remove_bg'; payload?: Record<string, unknown> }
+  | { type: 'ocr_remove_text'; payload?: { regions?: OcrDetection[]; shrink_px?: number } }
+
+export interface SnippetVersionMeta {
+  version: number
+  created_at: string
+  comment?: string
+  checksum?: string
+  ops_snapshot?: SnippetOp[]
+}
+
+export interface SnippetMeta {
+  ops: SnippetOp[]
+  versions: SnippetVersionMeta[]
+  ocr_detections: OcrDetection[]
+}
+
 export interface Snippet {
   id: string
   name: string
@@ -247,6 +266,14 @@ export interface Snippet {
   text_erased: boolean
   created_at: string
   ocr_detections: OcrDetection[]
+  current_version: number
+}
+
+export interface SnippetUpdatePayload {
+  name?: string
+  ops?: SnippetOp[]
+  comment?: string
+  propagate?: Record<string, unknown>
 }
 
 export const snippetsApi = {
@@ -266,5 +293,14 @@ export const snippetsApi = {
     api.get<{ base64: string; width: number; height: number }>(`/snippets/${snippetId}/base64?transparent=${transparent}`),
   updateOcrDetections: (snippetId: string, ocr_detections: OcrDetection[]) =>
     api.patch<Snippet>(`/snippets/${snippetId}/ocr-detections`, { ocr_detections }),
+  update: (snippetId: string, payload: SnippetUpdatePayload) =>
+    api.patch<Snippet>(`/snippets/${snippetId}`, payload),
+  restoreVersion: (snippetId: string, targetVersion: number, comment?: string) =>
+    api.post<Snippet>(`/snippets/${snippetId}/restore-version`, { target_version: targetVersion, comment }),
+  getMeta: (snippetId: string) => api.get<SnippetMeta>(`/snippets/${snippetId}/meta`),
+  detectOcr: (snippetId: string) => api.post<{ detections: OcrDetection[] }>(`/snippets/${snippetId}/ocr/detect`, {}),
+  removeText: (snippetId: string, data: { regions?: OcrDetection[]; shrink_px?: number }) =>
+    api.post<Snippet>(`/snippets/${snippetId}/ocr/remove-text`, data),
+  qaValidate: (snippetId: string) => api.post<{ passed: boolean; checks: Record<string, unknown>; path: string }>(`/snippets/${snippetId}/qa-validate`, {}),
   delete: (snippetId: string) => api.delete(`/snippets/${snippetId}`),
 }

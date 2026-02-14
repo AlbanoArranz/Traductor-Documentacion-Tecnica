@@ -23,6 +23,7 @@ class DrawingElementCreate(BaseModel):
     font_family: Optional[str] = "Arial"
     text_color: Optional[str] = "#000000"
     image_data: Optional[str] = None
+    source_snippet_id: Optional[str] = None
 
 
 class DrawingElementUpdate(BaseModel):
@@ -35,6 +36,7 @@ class DrawingElementUpdate(BaseModel):
     font_family: Optional[str] = None
     text_color: Optional[str] = None
     image_data: Optional[str] = None
+    source_snippet_id: Optional[str] = None
 
 
 class DrawingElementResponse(BaseModel):
@@ -51,6 +53,7 @@ class DrawingElementResponse(BaseModel):
     font_family: str
     text_color: str
     image_data: Optional[str]
+    source_snippet_id: Optional[str] = None
     created_at: str
 
 
@@ -77,6 +80,7 @@ async def list_drawings(project_id: str, page_number: int):
             font_family=d.font_family,
             text_color=d.text_color,
             image_data=d.image_data,
+            source_snippet_id=d.source_snippet_id,
             created_at=d.created_at.isoformat(),
         )
         for d in drawings
@@ -106,6 +110,7 @@ async def create_drawing(project_id: str, page_number: int, data: DrawingElement
         font_family=data.font_family,
         text_color=data.text_color,
         image_data=data.image_data,
+        source_snippet_id=data.source_snippet_id,
     )
     
     return DrawingElementResponse(
@@ -122,6 +127,7 @@ async def create_drawing(project_id: str, page_number: int, data: DrawingElement
         font_family=drawing.font_family,
         text_color=drawing.text_color,
         image_data=drawing.image_data,
+        source_snippet_id=drawing.source_snippet_id,
         created_at=drawing.created_at.isoformat(),
     )
 
@@ -153,6 +159,7 @@ async def update_drawing(project_id: str, drawing_id: str, data: DrawingElementU
         font_family=drawing.font_family,
         text_color=drawing.text_color,
         image_data=drawing.image_data,
+        source_snippet_id=drawing.source_snippet_id,
         created_at=drawing.created_at.isoformat(),
     )
 

@@ -7,7 +7,8 @@ import os
 import base64
 import tempfile
 import logging
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Literal
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -16,6 +17,7 @@ import numpy as np
 
 from ..config import PROJECTS_DIR, SNIPPETS_DIR, DEFAULT_DPI, get_ocr_engine
 from ..db.repository import snippets_repo, projects_repo
+from ..services import snippet_service
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -29,6 +31,14 @@ class OcrDetection(BaseModel):
     confidence: float
 
 
+class SnippetVersionMeta(BaseModel):
+    version: int
+    created_at: str
+    comment: Optional[str] = ""
+    checksum: Optional[str] = ""
+    ops_snapshot: Optional[List[dict]] = None
+
+
 class SnippetResponse(BaseModel):
     id: str
     name: str
@@ -38,6 +48,13 @@ class SnippetResponse(BaseModel):
     text_erased: bool = False
     created_at: str
     ocr_detections: List[OcrDetection] = []
+    current_version: int = 1
+
+
+class SnippetMetaResponse(BaseModel):
+    ops: List[dict]
+    versions: List[SnippetVersionMeta]
+    ocr_detections: List[OcrDetection]
 
 
 class CaptureRequest(BaseModel):
@@ -60,6 +77,7 @@ def _snippet_to_response(s) -> dict:
         has_transparent=s.has_transparent,
         text_erased=s.text_erased,
         created_at=s.created_at.isoformat(),
+        current_version=getattr(s, "current_version", 1),
         ocr_detections=[
             OcrDetection(**d) for d in (s.ocr_detections or [])
         ],
@@ -308,15 +326,9 @@ async def get_snippet_image(snippet_id: str, transparent: bool = False):
     snippet = snippets_repo.get(snippet_id)
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
-    
-    if transparent and snippet.has_transparent:
-        img_path = SNIPPETS_DIR / f"{snippet_id}_nobg.png"
-    else:
-        img_path = SNIPPETS_DIR / f"{snippet_id}.png"
-    
+    img_path = snippet_service.get_render_path(snippet_id, transparent=transparent)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail="Snippet image not found")
-    
     return FileResponse(str(img_path), media_type="image/png")
 
 
@@ -326,19 +338,36 @@ async def get_snippet_base64(snippet_id: str, transparent: bool = False):
     snippet = snippets_repo.get(snippet_id)
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
-    
-    if transparent and snippet.has_transparent:
-        img_path = SNIPPETS_DIR / f"{snippet_id}_nobg.png"
-    else:
-        img_path = SNIPPETS_DIR / f"{snippet_id}.png"
-    
+
+    img_path = snippet_service.get_render_path(snippet_id, transparent=transparent)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail="Snippet image not found")
-    
     with open(img_path, "rb") as f:
         data = base64.b64encode(f.read()).decode("ascii")
-    
     return {"base64": data, "width": snippet.width, "height": snippet.height}
+
+
+@router.get("/{snippet_id}/meta", response_model=SnippetMetaResponse)
+async def get_snippet_meta(snippet_id: str):
+    snippet = snippets_repo.get(snippet_id)
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+    meta = snippets_repo.load_snippet_meta(snippet_id)
+    versions = [
+        SnippetVersionMeta(
+            version=entry.get("version", 1),
+            created_at=entry.get("created_at", ""),
+            comment=entry.get("comment"),
+            checksum=entry.get("checksum"),
+            ops_snapshot=entry.get("ops_snapshot"),
+        )
+        for entry in meta.get("versions", [])
+    ]
+    return SnippetMetaResponse(
+        ops=meta.get("ops", []),
+        versions=versions,
+        ocr_detections=[OcrDetection(**d) for d in meta.get("ocr_detections", [])],
+    )
 
 
 class UpdateOcrDetectionsRequest(BaseModel):
@@ -355,6 +384,106 @@ async def update_ocr_detections(snippet_id: str, data: UpdateOcrDetectionsReques
     if not snippet:
         raise HTTPException(status_code=404, detail="Snippet not found")
     return _snippet_to_response(snippet)
+
+
+class SnippetUpdateOp(BaseModel):
+    type: Literal[
+        "remove_bg",
+        "ocr_remove_text",
+    ]
+    payload: Optional[dict] = None
+
+
+class SnippetUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    ops: Optional[List[SnippetUpdateOp]] = None
+    comment: Optional[str] = None
+    propagate: Optional[dict] = None
+
+
+@router.patch("/{snippet_id}", response_model=SnippetResponse)
+async def update_snippet(snippet_id: str, data: SnippetUpdateRequest):
+    snippet = snippets_repo.get(snippet_id)
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+
+    try:
+        snippet = snippet_service.create_version(
+            snippet_id,
+            name=data.name,
+            ops=[op.dict() for op in (data.ops or [])],
+            comment=data.comment or "",
+        )
+        return _snippet_to_response(snippet)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error("[SNIPPET] update failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Update failed")
+
+
+class RestoreVersionRequest(BaseModel):
+    target_version: int
+    comment: Optional[str] = None
+
+
+@router.post("/{snippet_id}/restore-version", response_model=SnippetResponse)
+async def restore_snippet_version(snippet_id: str, data: RestoreVersionRequest):
+    try:
+        snippet = snippet_service.restore_version(
+            snippet_id,
+            target_version=data.target_version,
+            comment=data.comment or "",
+        )
+        return _snippet_to_response(snippet)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error("[SNIPPET] restore failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Restore failed")
+
+
+class OcrDetectResponse(BaseModel):
+    detections: List[OcrDetection]
+
+
+@router.post("/{snippet_id}/ocr/detect", response_model=OcrDetectResponse)
+async def detect_snippet_ocr(snippet_id: str):
+    snippet = snippets_repo.get(snippet_id)
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+    path = snippet_service.get_render_path(snippet_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Snippet image not found")
+    with Image.open(path) as img:
+        detections = snippet_service.run_ocr_on_image(img)
+    return OcrDetectResponse(detections=[OcrDetection(**d) for d in detections])
+
+
+class OcrRemoveTextRequest(BaseModel):
+    regions: Optional[List[OcrDetection]] = None
+    shrink_px: int = 2
+
+
+@router.post("/{snippet_id}/ocr/remove-text", response_model=SnippetResponse)
+async def remove_snippet_text(snippet_id: str, data: OcrRemoveTextRequest):
+    regions = [d.dict() for d in (data.regions or [])]
+    ops = [
+        {
+            "type": "ocr_remove_text",
+            "payload": {"regions": regions, "shrink_px": data.shrink_px},
+        }
+    ]
+    snippet = snippet_service.create_version(snippet_id, ops=ops, comment="OCR remove text")
+    return _snippet_to_response(snippet)
+
+
+@router.post("/{snippet_id}/qa-validate")
+async def qa_validate_snippet(snippet_id: str):
+    snippet = snippets_repo.get(snippet_id)
+    if not snippet:
+        raise HTTPException(status_code=404, detail="Snippet not found")
+    return snippet_service.qa_validate(snippet_id)
 
 
 @router.delete("/{snippet_id}")

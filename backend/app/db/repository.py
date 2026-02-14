@@ -3,10 +3,12 @@ Repositorios para persistencia de datos (in-memory + JSON).
 """
 
 import json
+import os
 import uuid
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict, Any
+from tempfile import NamedTemporaryFile
 
 from ..config import PROJECTS_DIR, JOBS_DIR, SNIPPETS_DIR
 from .models import Project, ProjectStatus, Page, TextRegion, GlossaryEntry, Job, DocumentType, DrawingElement, Snippet
@@ -325,6 +327,7 @@ class DrawingsRepository:
                             font_family=d.get("font_family", "Arial"),
                             text_color=d.get("text_color", "#000000"),
                             image_data=d.get("image_data"),
+                            source_snippet_id=d.get("source_snippet_id"),
                             created_at=created_at,
                         )
         return self._cache[project_id]
@@ -348,6 +351,7 @@ class DrawingsRepository:
                     "font_family": d.font_family,
                     "text_color": d.text_color,
                     "image_data": d.image_data,
+                    "source_snippet_id": d.source_snippet_id,
                     "created_at": d.created_at.isoformat(),
                 }
                 for d in drawings.values()
@@ -369,6 +373,7 @@ class DrawingsRepository:
             font_family=kwargs.get("font_family", "Arial"),
             text_color=kwargs.get("text_color", "#000000"),
             image_data=kwargs.get("image_data"),
+            source_snippet_id=kwargs.get("source_snippet_id"),
         )
         project_drawings = self._get_project_drawings(project_id)
         project_drawings[drawing_id] = drawing
@@ -413,8 +418,21 @@ class SnippetsRepository:
     
     def __init__(self):
         self._cache: Dict[str, Snippet] = {}
+        self._meta_cache: Dict[str, Dict[str, Any]] = {}
         self._load()
     
+    def _atomic_write_json(self, path: Path, payload: Any):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as tmp:
+            json.dump(payload, tmp, ensure_ascii=False, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = Path(tmp.name)
+        os.replace(tmp_path, path)
+
+    def _meta_path(self, snippet_id: str) -> Path:
+        return SNIPPETS_DIR / f"{snippet_id}_meta.json"
+
     def _load(self):
         if self.INDEX_FILE.exists():
             try:
@@ -435,26 +453,67 @@ class SnippetsRepository:
                         ocr_detections=item.get("ocr_detections", []),
                         text_erased=item.get("text_erased", False),
                         created_at=created_at,
+                        current_version=item.get("current_version", 1),
                     )
             except Exception:
                 self._cache = {}
     
     def _save(self):
-        with open(self.INDEX_FILE, "w", encoding="utf-8") as f:
-            json.dump([
-                {
-                    "id": s.id,
-                    "name": s.name,
-                    "width": s.width,
-                    "height": s.height,
-                    "has_transparent": s.has_transparent,
-                    "ocr_detections": s.ocr_detections,
-                    "text_erased": s.text_erased,
-                    "created_at": s.created_at.isoformat(),
-                }
-                for s in self._cache.values()
-            ], f, ensure_ascii=False, indent=2)
-    
+        payload = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "width": s.width,
+                "height": s.height,
+                "has_transparent": s.has_transparent,
+                "ocr_detections": s.ocr_detections,
+                "text_erased": s.text_erased,
+                "created_at": s.created_at.isoformat(),
+                "current_version": getattr(s, "current_version", 1),
+            }
+            for s in self._cache.values()
+        ]
+        self._atomic_write_json(self.INDEX_FILE, payload)
+
+    def load_snippet_meta(self, snippet_id: str) -> Dict[str, Any]:
+        if snippet_id in self._meta_cache:
+            return json.loads(json.dumps(self._meta_cache[snippet_id]))
+        meta_path = self._meta_path(snippet_id)
+        if meta_path.exists():
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+        else:
+            snippet = self._cache.get(snippet_id)
+            created_at = snippet.created_at.isoformat() if snippet else datetime.now().isoformat()
+            current_version = getattr(snippet, "current_version", 1) if snippet else 1
+            meta = {
+                "ops": [],
+                "versions": [
+                    {
+                        "version": current_version,
+                        "created_at": created_at,
+                        "comment": "",
+                        "checksum": "",
+                        "ops_snapshot": [],
+                    }
+                ],
+                "ocr_detections": snippet.ocr_detections if snippet else [],
+            }
+        for entry in meta.get("versions", []):
+            if "ops_snapshot" not in entry:
+                entry["ops_snapshot"] = entry.get("ops", []) or []
+                if "ops" in entry:
+                    del entry["ops"]
+        self._meta_cache[snippet_id] = meta
+        return json.loads(json.dumps(meta))
+
+    def save_snippet_meta(self, snippet_id: str, meta: Dict[str, Any]):
+        self._meta_cache[snippet_id] = json.loads(json.dumps(meta))
+        self._atomic_write_json(self._meta_path(snippet_id), self._meta_cache[snippet_id])
+
+    def persist(self):
+        self._save()
+
     def create(self, name: str, width: int, height: int, has_transparent: bool = False, ocr_detections: list = None, text_erased: bool = False) -> Snippet:
         snippet_id = str(uuid.uuid4())
         snippet = Snippet(
@@ -468,6 +527,18 @@ class SnippetsRepository:
         )
         self._cache[snippet_id] = snippet
         self._save()
+        self.save_snippet_meta(snippet_id, {
+            "ops": [],
+            "versions": [
+                {
+                    "version": snippet.current_version,
+                    "created_at": snippet.created_at.isoformat(),
+                    "comment": "",
+                    "checksum": "",
+                }
+            ],
+            "ocr_detections": snippet.ocr_detections,
+        })
         return snippet
     
     def get(self, snippet_id: str) -> Optional[Snippet]:
@@ -493,6 +564,13 @@ class SnippetsRepository:
                 img_path = SNIPPETS_DIR / f"{snippet_id}{suffix}"
                 if img_path.exists():
                     img_path.unlink()
+            for version_file in SNIPPETS_DIR.glob(f"{snippet_id}_v*.png"):
+                if version_file.exists():
+                    version_file.unlink()
+            meta_path = self._meta_path(snippet_id)
+            if meta_path.exists():
+                meta_path.unlink()
+            self._meta_cache.pop(snippet_id, None)
             return True
         return False
 

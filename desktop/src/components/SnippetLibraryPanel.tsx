@@ -8,9 +8,10 @@ import toast from 'react-hot-toast'
 interface SnippetLibraryPanelProps {
   onSnippetSelect: (snippetId: string, transparent: boolean) => void
   onCaptureStart: () => void
+  onSnippetEdit: (snippet: Snippet) => void
 }
 
-export function SnippetLibraryPanel({ onSnippetSelect, onCaptureStart }: SnippetLibraryPanelProps) {
+export function SnippetLibraryPanel({ onSnippetSelect, onCaptureStart, onSnippetEdit }: SnippetLibraryPanelProps) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadRemoveBg, setUploadRemoveBg] = useState(false)
@@ -77,6 +78,7 @@ export function SnippetLibraryPanel({ onSnippetSelect, onCaptureStart }: Snippet
               snippet={snippet}
               onSelect={onSnippetSelect}
               onDelete={(id) => deleteMutation.mutate(id)}
+              onEdit={onSnippetEdit}
             />
           ))}
         </div>
@@ -124,10 +126,12 @@ function SnippetCard({
   snippet,
   onSelect,
   onDelete,
+  onEdit,
 }: {
   snippet: Snippet
   onSelect: (id: string, transparent: boolean) => void
   onDelete: (id: string) => void
+  onEdit: (snippet: Snippet) => void
 }) {
   const queryClient = useQueryClient()
   const [useTransparent, setUseTransparent] = useState(false)
@@ -162,6 +166,10 @@ function SnippetCard({
       <div
         className="aspect-square bg-gray-50 flex items-center justify-center cursor-pointer overflow-hidden"
         onClick={() => editingIdx === null && onSelect(snippet.id, useTransparent)}
+        onDoubleClick={(e) => {
+          e.preventDefault()
+          onEdit(snippet)
+        }}
         title={editingIdx === null ? `Clic para insertar: ${snippet.name}` : undefined}
         style={useTransparent ? { backgroundImage: 'linear-gradient(45deg, #e0e0e0 25%, transparent 25%, transparent 75%, #e0e0e0 75%), linear-gradient(45deg, #e0e0e0 25%, transparent 25%, transparent 75%, #e0e0e0 75%)', backgroundSize: '8px 8px', backgroundPosition: '0 0, 4px 4px' } : undefined}
       >
@@ -258,6 +266,15 @@ function SnippetCard({
           Sin texto
         </span>
       )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          onEdit(snippet)
+        }}
+        className="absolute bottom-1 left-1 px-1 py-0.5 text-[9px] border rounded bg-white/80 hover:bg-white text-primary-600"
+      >
+        Editar
+      </button>
       <button
         onClick={(e) => {
           e.stopPropagation()
