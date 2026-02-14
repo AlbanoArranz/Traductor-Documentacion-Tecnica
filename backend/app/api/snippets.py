@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 import numpy as np
 
 from ..config import PROJECTS_DIR, SNIPPETS_DIR, DEFAULT_DPI, get_ocr_engine
-from ..db.repository import snippets_repo, projects_repo
+from ..db.repository import snippets_repo, projects_repo, drawings_repo
 from ..services import snippet_service
 
 logger = logging.getLogger("uvicorn.error")
@@ -49,6 +49,7 @@ class SnippetResponse(BaseModel):
     created_at: str
     ocr_detections: List[OcrDetection] = []
     current_version: int = 1
+    updated_count: int = 0
 
 
 class SnippetMetaResponse(BaseModel):
@@ -78,6 +79,7 @@ def _snippet_to_response(s) -> dict:
         text_erased=s.text_erased,
         created_at=s.created_at.isoformat(),
         current_version=getattr(s, "current_version", 1),
+        updated_count=0,
         ocr_detections=[
             OcrDetection(**d) for d in (s.ocr_detections or [])
         ],
@@ -414,7 +416,33 @@ async def update_snippet(snippet_id: str, data: SnippetUpdateRequest):
             ops=[op.dict() for op in (data.ops or [])],
             comment=data.comment or "",
         )
-        return _snippet_to_response(snippet)
+        updated_count = 0
+        propagate = data.propagate or {}
+        if propagate.get("enabled"):
+            project_id = propagate.get("project_id")
+            if not project_id:
+                raise HTTPException(status_code=400, detail="propagate.project_id is required when enabled=true")
+
+            scope = propagate.get("scope", "current_page")
+            page_number = propagate.get("page_number") if scope == "current_page" else None
+            if scope == "current_page" and page_number is None:
+                raise HTTPException(status_code=400, detail="propagate.page_number is required for current_page scope")
+
+            base64_payload = get_snippet_base64(snippet_id, transparent=False)
+            if hasattr(base64_payload, "__await__"):
+                base64_payload = await base64_payload
+            updated_count = drawings_repo.propagate_snippet_image(
+                project_id=project_id,
+                snippet_id=snippet_id,
+                image_data=base64_payload["base64"],
+                page_number=page_number,
+            )
+
+        response = _snippet_to_response(snippet)
+        response.updated_count = updated_count
+        return response
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:

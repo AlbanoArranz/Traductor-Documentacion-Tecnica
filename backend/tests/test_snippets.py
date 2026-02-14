@@ -11,7 +11,7 @@ import io
 import json
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 from PIL import Image, ImageDraw
@@ -359,3 +359,57 @@ class TestSnippetsAPI:
             },
         )
         assert resp.status_code == 404
+
+    def test_patch_with_propagate_returns_updated_count(self, sample_png_bytes):
+        create_resp = self.client.post(
+            "/snippets/upload",
+            files={"file": ("test.png", sample_png_bytes, "image/png")},
+            data={"name": "Prop", "remove_bg": "false"},
+        )
+        assert create_resp.status_code == 200
+        snippet_id = create_resp.json()["id"]
+
+        fake_drawings_repo = MagicMock()
+        fake_drawings_repo.propagate_snippet_image.return_value = 2
+
+        with patch("app.api.snippets.drawings_repo", fake_drawings_repo):
+            resp = self.client.patch(
+                f"/snippets/{snippet_id}",
+                json={
+                    "comment": "propagate",
+                    "propagate": {
+                        "enabled": True,
+                        "scope": "current_page",
+                        "project_id": "p1",
+                        "page_number": 0,
+                    },
+                },
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["updated_count"] == 2
+        fake_drawings_repo.propagate_snippet_image.assert_called_once()
+
+    def test_patch_propagate_enabled_requires_project_id(self, sample_png_bytes):
+        create_resp = self.client.post(
+            "/snippets/upload",
+            files={"file": ("test.png", sample_png_bytes, "image/png")},
+            data={"name": "PropErr", "remove_bg": "false"},
+        )
+        assert create_resp.status_code == 200
+        snippet_id = create_resp.json()["id"]
+
+        resp = self.client.patch(
+            f"/snippets/{snippet_id}",
+            json={
+                "comment": "propagate",
+                "propagate": {
+                    "enabled": True,
+                    "scope": "current_page",
+                    "page_number": 0,
+                },
+            },
+        )
+
+        assert resp.status_code == 400

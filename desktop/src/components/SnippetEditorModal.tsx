@@ -7,10 +7,13 @@ import type { Snippet, OcrDetection, SnippetOp } from '../lib/api'
 
 interface SnippetEditorModalProps {
   snippet: Snippet
+  projectId?: string
+  pageNumber?: number
   onClose: () => void
+  onSaved?: (updatedSnippet: Snippet) => void
 }
 
-export function SnippetEditorModal({ snippet, onClose }: SnippetEditorModalProps) {
+export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, onSaved }: SnippetEditorModalProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(snippet.name)
   const [queuedOps, setQueuedOps] = useState<SnippetOp[]>([])
@@ -36,10 +39,15 @@ export function SnippetEditorModal({ snippet, onClose }: SnippetEditorModalProps
     mutationFn: (payload: { name?: string; ops?: SnippetOp[]; comment?: string }) =>
       snippetsApi.update(snippet.id, {
         ...payload,
-        propagate: propagateEnabled ? { enabled: true, scope: 'current_page' } : undefined,
+        propagate: propagateEnabled
+          ? { enabled: true, scope: 'current_page', project_id: projectId, page_number: pageNumber }
+          : undefined,
       }),
     onSuccess: (res) => {
       toast.success('Snippet actualizado')
+      if ((res.data.updated_count || 0) > 0) {
+        toast.success(`Propagado en ${res.data.updated_count} instancia(s) del canvas`)
+      }
       reloadSnippetList()
       queryClient.invalidateQueries({ queryKey: ['snippet-meta', snippet.id] })
       setDetectedRegions([])
@@ -47,6 +55,7 @@ export function SnippetEditorModal({ snippet, onClose }: SnippetEditorModalProps
       setIsPreviewRefreshing(true)
       setTimeout(() => setIsPreviewRefreshing(false), 400)
       setName(res.data.name)
+      onSaved?.(res.data)
     },
     onError: () => toast.error('Error al actualizar snippet'),
   })
@@ -129,7 +138,7 @@ export function SnippetEditorModal({ snippet, onClose }: SnippetEditorModalProps
 
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 border-r overflow-hidden">
-            <div className="p-4 space-y-3 h-full">
+            <div className="p-4 h-full flex flex-col gap-3 min-h-0">
               <div>
                 <label className="text-xs text-gray-500">Nombre</label>
                 <input
@@ -151,13 +160,13 @@ export function SnippetEditorModal({ snippet, onClose }: SnippetEditorModalProps
                 </label>
               </div>
 
-              <div className="relative flex-1 border rounded bg-gray-50 overflow-hidden">
+              <div className="relative flex-1 min-h-0 border rounded bg-gray-50 overflow-auto">
                 {isPreviewRefreshing && (
                   <div className="absolute inset-0 bg-white/70 flex items-center justify-center text-gray-500 text-sm">
                     Actualizando...
                   </div>
                 )}
-                <img src={imageUrl} alt={snippet.name} className="w-full h-full object-contain" />
+                <img src={imageUrl} alt={snippet.name} className="block w-full h-full object-contain" />
               </div>
 
               {detectedRegions.length > 0 && (

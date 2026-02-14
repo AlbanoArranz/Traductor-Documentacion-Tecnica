@@ -390,6 +390,29 @@ class DrawingsRepository:
     
     def list_by_project(self, project_id: str) -> List[DrawingElement]:
         return list(self._get_project_drawings(project_id).values())
+
+    def propagate_snippet_image(
+        self,
+        project_id: str,
+        snippet_id: str,
+        image_data: str,
+        page_number: Optional[int] = None,
+    ) -> int:
+        drawings = self._get_project_drawings(project_id)
+        updated = 0
+        for drawing in drawings.values():
+            if drawing.element_type != "image":
+                continue
+            if drawing.source_snippet_id != snippet_id:
+                continue
+            if page_number is not None and drawing.page_number != page_number:
+                continue
+            drawing.image_data = image_data
+            updated += 1
+
+        if updated > 0:
+            self._save(project_id)
+        return updated
     
     def update(self, drawing_id: str, project_id: str, **kwargs) -> Optional[DrawingElement]:
         project_drawings = self._get_project_drawings(project_id)

@@ -77,8 +77,8 @@ export default function ProjectPage() {
   const [imageModeActive, setImageModeActive] = useState(false)
   const [captureDialogBbox, setCaptureDialogBbox] = useState<number[] | null>(null)
   const [placingSnippetData, setPlacingSnippetData] = useState<{ base64: string; width: number; height: number; snippetId: string } | null>(null)
-  const [composeDirtyPages, setComposeDirtyPages] = useState<Record<number, boolean>>({})
   const [editingSnippet, setEditingSnippet] = useState<Snippet | null>(null)
+  const [composeDirtyPages, setComposeDirtyPages] = useState<Record<number, boolean>>({})
   const autoComposeTimerRef = useRef<number | null>(null)
   // Estado para Undo/Redo
   const { execute: executeUndoable, undo, redo, canUndo, canRedo } = useUndoRedo()
@@ -98,13 +98,8 @@ export default function ProjectPage() {
   const { data: regions } = useQuery({
     queryKey: ['regions', projectId, selectedPage],
     queryFn: () => pagesApi.getTextRegions(projectId!, selectedPage).then(res => res.data),
-    enabled: !!projectId && selectedPage != null,
+    enabled: !!projectId,
   })
-
-  const selectedRegion = useMemo(() => {
-    if (selectedRegionIds.size !== 1 || !regions) return null
-    return regions.find((r) => selectedRegionIds.has(r.id)) ?? null
-  }, [selectedRegionIds, regions])
 
   const isolatedRegionIds = useMemo(() => {
     const out = new Set<string>()
@@ -687,6 +682,18 @@ export default function ProjectPage() {
           break
         default:
           return
+      }
+      
+      e.preventDefault()
+      
+      // Move all selected regions
+      const selectedRegions = (regions || []).filter(r => selectedRegionIds.has(r.id))
+      selectedRegions.forEach(region => {
+        const [x1, y1, x2, y2] = region.bbox
+        const newBbox = [x1 + dx, y1 + dy, x2 + dx, y2 + dy]
+        
+        updateRegionMutation.mutate({
+          regionId: region.id,
           updates: { bbox: newBbox },
         })
       })
@@ -1314,7 +1321,9 @@ export default function ProjectPage() {
               onCaptureStart={() => {
                 setDrawingTool('capture')
               }}
-              onSnippetEdit={(snippet) => setEditingSnippet(snippet)}
+              onSnippetEdit={(snippet) => {
+                setEditingSnippet(snippet)
+              }}
             />
           ) : (
           <>
@@ -1616,7 +1625,10 @@ export default function ProjectPage() {
       )}
 
       {/* Region edit panel - solo muestra cuando hay exactamente 1 seleccionada */}
-      {selectedRegion && (
+      {selectedRegionIds.size === 1 && (() => {
+        const selectedRegion = regions?.find(r => selectedRegionIds.has(r.id))
+        if (!selectedRegion) return null
+        return (
         <div className="fixed right-4 top-20 w-80 z-50">
           <RegionPropertiesPanel
             region={selectedRegion}
@@ -1673,4 +1685,21 @@ export default function ProjectPage() {
             }}
           />
         </div>
+        )
+      })()}
+
+      {editingSnippet && (
+        <SnippetEditorModal
+          snippet={editingSnippet}
+          projectId={projectId}
+          pageNumber={selectedPage}
+          onSaved={(updatedSnippet) => {
+            setEditingSnippet(updatedSnippet)
+            queryClient.invalidateQueries({ queryKey: ['drawings', projectId, selectedPage] })
+          }}
+          onClose={() => setEditingSnippet(null)}
+        />
       )}
+    </div>
+  )
+}

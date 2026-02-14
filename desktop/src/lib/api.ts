@@ -267,13 +267,21 @@ export interface Snippet {
   created_at: string
   ocr_detections: OcrDetection[]
   current_version: number
+  updated_count?: number
+}
+
+export interface SnippetPropagatePayload {
+  enabled: boolean
+  scope?: 'current_page' | 'all_pages'
+  project_id?: string
+  page_number?: number
 }
 
 export interface SnippetUpdatePayload {
   name?: string
   ops?: SnippetOp[]
   comment?: string
-  propagate?: Record<string, unknown>
+  propagate?: SnippetPropagatePayload
 }
 
 export const snippetsApi = {
