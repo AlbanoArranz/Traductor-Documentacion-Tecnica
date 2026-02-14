@@ -392,6 +392,8 @@ class SnippetUpdateOp(BaseModel):
     type: Literal[
         "remove_bg",
         "ocr_remove_text",
+        "ocr_replace_text",
+        "draw_overlay",
     ]
     payload: Optional[dict] = None
 

@@ -239,9 +239,23 @@ export interface OcrDetection {
   confidence: number
 }
 
+export interface SnippetOverlayElement {
+  element_type: 'line' | 'rect' | 'circle' | 'text' | 'polyline'
+  points: number[]
+  stroke_color: string
+  stroke_width: number
+  fill_color: string | null
+  text: string | null
+  font_size: number
+  font_family: string
+  text_color: string
+}
+
 export type SnippetOp =
   | { type: 'remove_bg'; payload?: Record<string, unknown> }
   | { type: 'ocr_remove_text'; payload?: { regions?: OcrDetection[]; shrink_px?: number } }
+  | { type: 'ocr_replace_text'; payload?: { regions?: OcrDetection[]; shrink_px?: number } }
+  | { type: 'draw_overlay'; payload?: { elements?: SnippetOverlayElement[] } }
 
 export interface SnippetVersionMeta {
   version: number

@@ -2,15 +2,12 @@ import { useState } from 'react'
 import { X } from 'lucide-react'
 
 interface CaptureDialogProps {
-  onConfirm: (name: string, removeBg: boolean, runOcr: boolean, eraseOcrText: boolean) => Promise<void> | void
+  onConfirm: (name: string) => Promise<void> | void
   onCancel: () => void
 }
 
 export function CaptureDialog({ onConfirm, onCancel }: CaptureDialogProps) {
   const [name, setName] = useState('')
-  const [removeBg, setRemoveBg] = useState(false)
-  const [runOcr, setRunOcr] = useState(false)
-  const [eraseOcrText, setEraseOcrText] = useState(false)
   const [saving, setSaving] = useState(false)
 
   return (
@@ -35,40 +32,6 @@ export function CaptureDialog({ onConfirm, onCancel }: CaptureDialogProps) {
               disabled={saving}
             />
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={removeBg}
-              onChange={(e) => setRemoveBg(e.target.checked)}
-              disabled={saving}
-            />
-            Quitar fondo blanco
-          </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={runOcr}
-              onChange={(e) => setRunOcr(e.target.checked)}
-              disabled={saving}
-            />
-            Detectar texto (OCR)
-          </label>
-          {runOcr && (
-            <p className="ml-6 text-xs text-gray-500">
-              El texto detectado se mostrará sobre la imagen en la librería.
-            </p>
-          )}
-          {runOcr && (
-            <label className="flex items-center gap-2 text-sm text-gray-700 ml-6">
-              <input
-                type="checkbox"
-                checked={eraseOcrText}
-                onChange={(e) => setEraseOcrText(e.target.checked)}
-                disabled={saving}
-              />
-              Borrar textos detectados
-            </label>
-          )}
           <div className="flex gap-2 pt-1">
             <button
               onClick={onCancel}
@@ -82,7 +45,7 @@ export function CaptureDialog({ onConfirm, onCancel }: CaptureDialogProps) {
               onClick={async () => {
                 setSaving(true)
                 try {
-                  await onConfirm(name.trim() || 'Sin nombre', removeBg, runOcr, eraseOcrText && runOcr)
+                  await onConfirm(name.trim() || 'Sin nombre')
                 } finally {
                   setSaving(false)
                 }

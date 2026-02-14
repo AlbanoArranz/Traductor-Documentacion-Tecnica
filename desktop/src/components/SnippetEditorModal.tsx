@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { X, Eye, Undo2, AlertTriangle, Wand2, Droplet } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { snippetsApi } from '../lib/api'
-import type { Snippet, OcrDetection, SnippetOp } from '../lib/api'
+import type { Snippet, OcrDetection, SnippetOp, SnippetOverlayElement } from '../lib/api'
+import { SnippetDrawingEditor } from './SnippetDrawingEditor'
 
 interface SnippetEditorModalProps {
   snippet: Snippet
@@ -18,8 +19,14 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
   const [name, setName] = useState(snippet.name)
   const [queuedOps, setQueuedOps] = useState<SnippetOp[]>([])
   const [detectedRegions, setDetectedRegions] = useState<OcrDetection[]>([])
+  const [ocrDraft, setOcrDraft] = useState<OcrDetection[]>(snippet.ocr_detections || [])
+  const [ocrDirty, setOcrDirty] = useState(false)
+  const [overlayElements, setOverlayElements] = useState<SnippetOverlayElement[]>([])
+  const [drawDirty, setDrawDirty] = useState(false)
   const [propagateEnabled, setPropagateEnabled] = useState(false)
   const [isPreviewRefreshing, setIsPreviewRefreshing] = useState(false)
+  const [previewSize, setPreviewSize] = useState({ width: snippet.width, height: snippet.height })
+  const imgRef = useRef<HTMLImageElement>(null)
 
   const metaQuery = useQuery({
     queryKey: ['snippet-meta', snippet.id],
@@ -52,6 +59,9 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
       queryClient.invalidateQueries({ queryKey: ['snippet-meta', snippet.id] })
       setDetectedRegions([])
       setQueuedOps([])
+      setOcrDirty(false)
+      setDrawDirty(false)
+      setOverlayElements([])
       setIsPreviewRefreshing(true)
       setTimeout(() => setIsPreviewRefreshing(false), 400)
       setName(res.data.name)
@@ -63,10 +73,14 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
   const restoreMutation = useMutation({
     mutationFn: (targetVersion: number) =>
       snippetsApi.restoreVersion(snippet.id, targetVersion, `Restore to v${targetVersion}`),
-    onSuccess: () => {
+    onSuccess: (res) => {
       toast.success('Versión restaurada')
       reloadSnippetList()
       queryClient.invalidateQueries({ queryKey: ['snippet-meta', snippet.id] })
+      setIsPreviewRefreshing(true)
+      setTimeout(() => setIsPreviewRefreshing(false), 400)
+      setName(res.data.name)
+      onSaved?.(res.data)
     },
     onError: () => toast.error('Error al restaurar versión'),
   })
@@ -76,6 +90,8 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
     onSuccess: (res) => {
       toast.success(`Detectados ${res.data.detections.length} textos`)
       setDetectedRegions(res.data.detections)
+      setOcrDraft(res.data.detections)
+      setOcrDirty(true)
     },
     onError: () => toast.error('Error al detectar texto'),
   })
@@ -83,13 +99,16 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
   const removeTextMutation = useMutation({
     mutationFn: () =>
       snippetsApi.removeText(snippet.id, {
-        regions: detectedRegions,
+        regions: ocrDraft,
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       toast.success('Texto eliminado')
       reloadSnippetList()
       queryClient.invalidateQueries({ queryKey: ['snippet-meta', snippet.id] })
       setDetectedRegions([])
+      setOcrDraft([])
+      setOcrDirty(false)
+      onSaved?.(res.data)
     },
     onError: () => toast.error('No se pudo borrar texto'),
   })
@@ -108,14 +127,61 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
 
   useEffect(() => {
     setName(snippet.name)
+    setDetectedRegions(snippet.ocr_detections || [])
+    setOcrDraft(snippet.ocr_detections || [])
+    setOcrDirty(false)
+    setDrawDirty(false)
+    setOverlayElements([])
+    setPreviewSize({ width: snippet.width, height: snippet.height })
   }, [snippet.id, snippet.name])
 
+  useEffect(() => {
+    if (!ocrDirty && metaQuery.data?.ocr_detections) {
+      setDetectedRegions(metaQuery.data.ocr_detections)
+      setOcrDraft(metaQuery.data.ocr_detections)
+    }
+  }, [metaQuery.data?.ocr_detections, ocrDirty])
+
+  const buildPendingOps = (): SnippetOp[] => {
+    const ops: SnippetOp[] = [...queuedOps]
+    if (ocrDirty) {
+      ops.push({
+        type: 'ocr_replace_text',
+        payload: { regions: ocrDraft, shrink_px: 2 },
+      })
+    }
+    if (drawDirty && overlayElements.length > 0) {
+      ops.push({
+        type: 'draw_overlay',
+        payload: { elements: overlayElements },
+      })
+    }
+    return ops
+  }
+
+  const applyPendingChanges = () => {
+    applyOpsMutation.mutate({
+      name: name.trim() || snippet.name,
+      ops: buildPendingOps(),
+      comment: 'Manual edit',
+    })
+  }
+
   const handleSaveName = () => {
-    if (name.trim() === snippet.name && queuedOps.length === 0) {
+    const hasNameOrOps = !(name.trim() === snippet.name && queuedOps.length === 0)
+    if (!hasNameOrOps && !ocrDirty && !drawDirty) {
       onClose()
       return
     }
-    applyOpsMutation.mutate({ name: name.trim() || snippet.name, ops: queuedOps, comment: 'Manual edit' })
+    applyPendingChanges()
+  }
+
+  const handleSaveOnlyOcr = () => {
+    applyOpsMutation.mutate({
+      name: snippet.name,
+      ops: [{ type: 'ocr_replace_text', payload: { regions: ocrDraft, shrink_px: 2 } }],
+      comment: 'OCR replace text',
+    })
   }
 
   const queueOp = (op: SnippetOp) => {
@@ -166,7 +232,70 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
                     Actualizando...
                   </div>
                 )}
-                <img src={imageUrl} alt={snippet.name} className="block w-full h-full object-contain" />
+                <div className="w-full h-full flex items-center justify-center">
+                  <div
+                    className="relative"
+                    style={{
+                      width: previewSize.width,
+                      height: previewSize.height,
+                    }}
+                  >
+                    <img
+                      ref={imgRef}
+                      src={imageUrl}
+                      alt={snippet.name}
+                      className="block w-full h-full object-contain"
+                      onLoad={() => {
+                        if (imgRef.current) {
+                          setPreviewSize({
+                            width: imgRef.current.clientWidth,
+                            height: imgRef.current.clientHeight,
+                          })
+                        }
+                      }}
+                    />
+                    <SnippetDrawingEditor
+                      imageWidth={snippet.width}
+                      imageHeight={snippet.height}
+                      scale={previewSize.width / Math.max(snippet.width, 1)}
+                      elements={overlayElements}
+                      onChange={(elements) => {
+                        setOverlayElements(elements)
+                        setDrawDirty(true)
+                      }}
+                    />
+                    {ocrDraft.length > 0 && (
+                      <div className="absolute inset-0 pointer-events-none">
+                        {ocrDraft.map((det, idx) => {
+                          const [x1, y1, x2, y2] = det.bbox
+                          const left = (x1 / snippet.width) * 100
+                          const top = (y1 / snippet.height) * 100
+                          const width = ((x2 - x1) / snippet.width) * 100
+                          const height = ((y2 - y1) / snippet.height) * 100
+                          const fontScale = previewSize.height / snippet.height
+                          const pxFontSize = Math.max(8, Math.round((y2 - y1) * fontScale * 0.5))
+                          return (
+                            <div
+                              key={`${idx}-${x1}-${y1}`}
+                              className="absolute flex items-center justify-center border border-blue-400/70 bg-white/60 rounded-sm"
+                              style={{
+                                left: `${left}%`,
+                                top: `${top}%`,
+                                width: `${width}%`,
+                                height: `${height}%`,
+                                fontSize: `${pxFontSize}px`,
+                              }}
+                            >
+                              <span className="text-blue-900 font-medium truncate px-1" title={det.text}>
+                                {det.text}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {detectedRegions.length > 0 && (
@@ -211,6 +340,43 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-semibold">OCR</h4>
+                  <button
+                    className="text-xs border rounded px-2 py-1 hover:bg-gray-50 disabled:opacity-50"
+                    onClick={handleSaveOnlyOcr}
+                    disabled={!ocrDirty || applyOpsMutation.isPending}
+                  >
+                    {applyOpsMutation.isPending ? 'Guardando OCR...' : 'Guardar OCR'}
+                  </button>
+                </div>
+                {ocrDraft.length === 0 ? (
+                  <p className="text-xs text-gray-500">Sin detecciones OCR para editar.</p>
+                ) : (
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                    {ocrDraft.map((det, idx) => (
+                      <div key={idx} className="border rounded p-2">
+                        <p className="text-[10px] text-gray-500 mb-1">
+                          bbox: [{det.bbox.map((v) => Math.round(v)).join(', ')}]
+                        </p>
+                        <input
+                          value={det.text}
+                          onChange={(e) => {
+                            const next = [...ocrDraft]
+                            next[idx] = { ...next[idx], text: e.target.value }
+                            setOcrDraft(next)
+                            setDetectedRegions(next)
+                            setOcrDirty(true)
+                          }}
+                          className="w-full border rounded px-2 py-1 text-xs"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
                 <h4 className="text-sm font-semibold mb-2">Historial</h4>
                 {metaQuery.isLoading && <p className="text-xs text-gray-500">Cargando...</p>}
                 {metaQuery.data?.versions?.length ? (
@@ -243,6 +409,11 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
               {queuedOps.length > 0 && (
                 <div className="text-xs text-gray-600 bg-primary-50 border border-primary-100 rounded px-2 py-1">
                   {queuedOps.length} operación(es) pendiente(s) • Guarda para aplicar.
+                </div>
+              )}
+              {drawDirty && (
+                <div className="text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                  {overlayElements.length} anotación(es) de dibujo pendiente(s) • Guarda para aplicar.
                 </div>
               )}
             </div>

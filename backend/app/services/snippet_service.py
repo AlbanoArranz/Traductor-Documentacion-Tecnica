@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from ..config import SNIPPETS_DIR, get_ocr_engine
 from ..db.repository import snippets_repo
@@ -143,6 +143,80 @@ def erase_text_regions(img: Image.Image, detections: List[dict], shrink_px: int 
     return working
 
 
+def replace_ocr_text_regions(img: Image.Image, detections: List[dict], shrink_px: int = 2) -> Image.Image:
+    if not detections:
+        return img
+    working = erase_text_regions(img, detections, shrink_px=shrink_px)
+    draw = ImageDraw.Draw(working)
+    default_font = ImageFont.load_default()
+
+    for det in detections:
+        bbox = det.get("bbox") or []
+        text = (det.get("text") or "").strip()
+        if len(bbox) != 4 or not text:
+            continue
+        x1, y1, x2, y2 = [float(v) for v in bbox]
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        font_size = max(10, int((y2 - y1) * 0.7))
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except Exception:
+            font = default_font
+
+        text_bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = max(1, text_bbox[2] - text_bbox[0])
+        text_h = max(1, text_bbox[3] - text_bbox[1])
+        tx = x1 + ((x2 - x1) - text_w) / 2
+        ty = y1 + ((y2 - y1) - text_h) / 2
+        draw.text((tx, ty), text, fill="black", font=font)
+
+    return working
+
+
+def draw_overlay_elements(img: Image.Image, elements: List[dict]) -> Image.Image:
+    if not elements:
+        return img
+    working = img.convert("RGBA")
+    draw = ImageDraw.Draw(working)
+    default_font = ImageFont.load_default()
+
+    for el in elements:
+        el_type = el.get("element_type")
+        points = el.get("points") or []
+        stroke_color = el.get("stroke_color") or "#000000"
+        stroke_width = int(el.get("stroke_width") or 2)
+        fill_color = el.get("fill_color")
+
+        try:
+            if el_type == "line" and len(points) >= 4:
+                draw.line(points[:4], fill=stroke_color, width=stroke_width)
+            elif el_type == "rect" and len(points) >= 4:
+                x1, y1, x2, y2 = points[:4]
+                draw.rectangle([x1, y1, x2, y2], outline=stroke_color, width=stroke_width, fill=fill_color)
+            elif el_type == "circle" and len(points) >= 4:
+                x1, y1, x2, y2 = points[:4]
+                draw.ellipse([x1, y1, x2, y2], outline=stroke_color, width=stroke_width, fill=fill_color)
+            elif el_type == "polyline" and len(points) >= 4 and len(points) % 2 == 0:
+                poly_pts = [(points[i], points[i + 1]) for i in range(0, len(points), 2)]
+                draw.line(poly_pts, fill=stroke_color, width=stroke_width)
+            elif el_type == "text" and len(points) >= 2:
+                text = (el.get("text") or "").strip()
+                if text:
+                    font_size = int(el.get("font_size") or 14)
+                    text_color = el.get("text_color") or stroke_color
+                    try:
+                        font = ImageFont.truetype("arial.ttf", max(10, font_size))
+                    except Exception:
+                        font = default_font
+                    draw.text((points[0], points[1]), text, fill=text_color, font=font)
+        except Exception as exc:
+            logger.warning("[SNIPPET] draw_overlay element skipped: %s", exc)
+
+    return working
+
+
 def render_from_ops(snippet_id: str, ops: Optional[List[Dict[str, Any]]]) -> Image.Image:
     base_path = get_render_path(snippet_id)
     with Image.open(base_path) as img:
@@ -157,6 +231,13 @@ def render_from_ops(snippet_id: str, ops: Optional[List[Dict[str, Any]]]) -> Ima
             regions = payload.get("regions")
             detections = regions or run_ocr_on_image(current)
             current = erase_text_regions(current, detections, shrink_px=payload.get("shrink_px", 2))
+        elif op_type == "ocr_replace_text":
+            regions = payload.get("regions")
+            detections = regions or run_ocr_on_image(current)
+            current = replace_ocr_text_regions(current, detections, shrink_px=payload.get("shrink_px", 2))
+        elif op_type == "draw_overlay":
+            elements = payload.get("elements") or []
+            current = draw_overlay_elements(current, elements)
         else:
             logger.warning("[SNIPPET] Unsupported op '%s'", op_type)
 
@@ -181,10 +262,26 @@ def create_version(
     current_version = getattr(snippet, "current_version", 1)
     next_version = current_version + 1
     snippet.current_version = next_version
-    snippets_repo.persist()
 
     meta = snippets_repo.load_snippet_meta(snippet_id)
     normalized_ops = ops or []
+    for op in normalized_ops:
+        op_type = op.get("type")
+        payload = op.get("payload", {}) or {}
+        if op_type == "ocr_replace_text":
+            regions = payload.get("regions") or []
+            snippet.ocr_detections = regions
+            snippet.text_erased = True
+            meta["ocr_detections"] = regions
+        elif op_type == "ocr_remove_text":
+            regions = payload.get("regions") or []
+            if regions:
+                snippet.ocr_detections = regions
+                meta["ocr_detections"] = regions
+            snippet.text_erased = True
+
+    snippets_repo.persist()
+
     meta["ops"] = normalized_ops
     meta.setdefault("versions", []).append(
         {

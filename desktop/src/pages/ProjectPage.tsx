@@ -1588,27 +1588,20 @@ export default function ProjectPage() {
       {/* CaptureDialog */}
       {captureDialogBbox && (
         <CaptureDialog
-          onConfirm={async (name, removeBg, runOcr, eraseOcrText) => {
+          onConfirm={async (name) => {
             if (!projectId) return
             try {
-              const res = await snippetsApi.capture({
+              await snippetsApi.capture({
                 project_id: projectId,
                 page_number: selectedPage,
                 bbox: captureDialogBbox,
                 name,
-                remove_bg: removeBg,
-                run_ocr: runOcr,
-                erase_ocr_text: eraseOcrText,
+                remove_bg: false,
+                run_ocr: false,
+                erase_ocr_text: false,
               })
               queryClient.invalidateQueries({ queryKey: ['snippets'] })
-              const nDet = res.data.ocr_detections?.length || 0
-              if (runOcr && nDet > 0) {
-                toast.success(`Guardado con ${nDet} textos detectados`)
-              } else if (runOcr) {
-                toast.success('Guardado (no se detectó texto)')
-              } else {
-                toast.success('Imagen guardada en la librería')
-              }
+              toast.success('Imagen guardada en la librería')
             } catch (e) {
               const detail = (e as any)?.response?.data?.detail || (e as any)?.message || String(e)
               console.error('Error capturing snippet:', detail, e)
