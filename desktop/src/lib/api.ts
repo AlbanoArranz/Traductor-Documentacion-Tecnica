@@ -237,6 +237,7 @@ export interface OcrDetection {
   bbox: number[]  // [x1, y1, x2, y2] relativas al recorte
   text: string
   confidence: number
+  font_size_ui?: number  // percentage multiplier for UI typography (100 = normal), separate from detection confidence
 }
 
 export interface SnippetOverlayElement {
@@ -256,6 +257,7 @@ export type SnippetOp =
   | { type: 'ocr_remove_text'; payload?: { regions?: OcrDetection[]; shrink_px?: number } }
   | { type: 'ocr_replace_text'; payload?: { regions?: OcrDetection[]; shrink_px?: number } }
   | { type: 'draw_overlay'; payload?: { elements?: SnippetOverlayElement[] } }
+  | { type: 'crop_copy'; payload?: { src_rect: { x: number; y: number; w: number; h: number }; dst_rect: { x: number; y: number; w: number; h: number } } }
 
 export interface SnippetVersionMeta {
   version: number

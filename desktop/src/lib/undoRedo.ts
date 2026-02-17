@@ -9,11 +9,6 @@ export interface UndoableAction<TResult = any> {
   redo?: () => Promise<TResult>
 }
 
-interface UndoRedoState<TResult> {
-  past: UndoableAction<TResult>[]
-  future: UndoableAction<TResult>[]
-}
-
 export function useUndoRedo<TResult = any>() {
   const [past, setPast] = useState<UndoableAction<TResult>[]>([])
   const [future, setFuture] = useState<UndoableAction<TResult>[]>([])

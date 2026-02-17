@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
-import { X, Eye, Undo2, AlertTriangle, Wand2, Droplet } from 'lucide-react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import { X, ZoomIn, ZoomOut, Maximize } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { snippetsApi } from '../lib/api'
 import type { Snippet, OcrDetection, SnippetOp, SnippetOverlayElement } from '../lib/api'
+import { SnippetToolbar } from './SnippetToolbar'
+import { SnippetInspector } from './SnippetInspector'
 import { SnippetDrawingEditor } from './SnippetDrawingEditor'
+import { SnippetCropOverlay } from './SnippetCropOverlay'
+import type { DrawingTool } from './DrawingCanvas'
 
 interface SnippetEditorModalProps {
   snippet: Snippet
@@ -13,6 +17,9 @@ interface SnippetEditorModalProps {
   onClose: () => void
   onSaved?: (updatedSnippet: Snippet) => void
 }
+
+const ZOOM_LEVELS = [25, 50, 75, 100, 150, 200, 300, 400]
+const DEFAULT_ZOOM = 100
 
 export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, onSaved }: SnippetEditorModalProps) {
   const queryClient = useQueryClient()
@@ -25,7 +32,14 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
   const [drawDirty, setDrawDirty] = useState(false)
   const [propagateEnabled, setPropagateEnabled] = useState(false)
   const [isPreviewRefreshing, setIsPreviewRefreshing] = useState(false)
-  const [previewSize, setPreviewSize] = useState({ width: snippet.width, height: snippet.height })
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM)
+  const [tool, setTool] = useState<DrawingTool>('select')
+  const [strokeColor, setStrokeColor] = useState('#ff0000')
+  const [strokeWidth, setStrokeWidth] = useState(2)
+  const [fillColor, setFillColor] = useState<string | null>(null)
+  const [isCropMode, setIsCropMode] = useState(false)
+  const [ocrTypography, setOcrTypography] = useState({ fontSize: 100, fontFamily: 'Arial' })
+  const containerRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
 
   const metaQuery = useQuery({
@@ -132,7 +146,9 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
     setOcrDirty(false)
     setDrawDirty(false)
     setOverlayElements([])
-    setPreviewSize({ width: snippet.width, height: snippet.height })
+    setZoom(DEFAULT_ZOOM)
+    setIsCropMode(false)
+    setOcrTypography({ fontSize: 100, fontFamily: 'Arial' })
   }, [snippet.id, snippet.name])
 
   useEffect(() => {
@@ -167,9 +183,9 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
     })
   }
 
-  const handleSaveName = () => {
-    const hasNameOrOps = !(name.trim() === snippet.name && queuedOps.length === 0)
-    if (!hasNameOrOps && !ocrDirty && !drawDirty) {
+  const handleSave = () => {
+    const hasChanges = !(name.trim() === snippet.name && queuedOps.length === 0) || ocrDirty || drawDirty
+    if (!hasChanges) {
       onClose()
       return
     }
@@ -186,254 +202,267 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
 
   const queueOp = (op: SnippetOp) => {
     setQueuedOps((prev) => [...prev, op])
-    toast.success('Operación añadida. Pulsa Guardar para aplicar.')
+    toast.success('Operación añadida')
   }
+
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => {
+      const idx = ZOOM_LEVELS.findIndex((z) => z >= prev)
+      return ZOOM_LEVELS[Math.min(idx + 1, ZOOM_LEVELS.length - 1)]
+    })
+  }, [])
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => {
+      const idx = ZOOM_LEVELS.findIndex((z) => z >= prev)
+      return ZOOM_LEVELS[Math.max(idx - 1, 0)]
+    })
+  }, [])
+
+  const handleZoomFit = useCallback(() => {
+    if (!containerRef.current) return
+    const containerW = containerRef.current.clientWidth - 32
+    const containerH = containerRef.current.clientHeight - 32
+    const scaleX = (containerW / snippet.width) * 100
+    const scaleY = (containerH / snippet.height) * 100
+    setZoom(Math.min(scaleX, scaleY, 100))
+  }, [snippet.width, snippet.height])
+
+  const handleWheelZoom = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.altKey) {
+      e.preventDefault()
+      if (e.deltaY < 0) {
+        handleZoomIn()
+      } else {
+        handleZoomOut()
+      }
+    }
+  }, [handleZoomIn, handleZoomOut])
+
+  const handleDoubleClickZoom = useCallback(() => {
+    setZoom((prev) => (prev === 100 ? DEFAULT_ZOOM : 100))
+  }, [])
+
+  const handleCropModeToggle = () => {
+    setIsCropMode((prev) => !prev)
+    if (!isCropMode) {
+      setTool('select')
+    }
+  }
+
+  const scaledWidth = (snippet.width * zoom) / 100
+  const scaledHeight = (snippet.height * zoom) / 100
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-2xl w-[900px] h-[600px] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div>
-            <p className="text-xs text-gray-500">Editar snippet</p>
-            <h3 className="text-lg font-semibold">{snippet.name}</h3>
+      <div className="bg-white rounded-lg shadow-2xl w-[1100px] h-[700px] flex flex-col max-w-[95vw] max-h-[95vh]">
+        {/* Header compacto */}
+        <div className="flex items-center justify-between px-4 py-2 border-b bg-gray-50 rounded-t-lg">
+          <div className="flex items-center gap-4">
+            <h3 className="text-sm font-semibold text-gray-800">{snippet.name}</h3>
+            <span className="text-xs text-gray-500">v{snippet.current_version}</span>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={propagateEnabled}
+                onChange={(e) => setPropagateEnabled(e.target.checked)}
+                className="cursor-pointer"
+              />
+              Propagar
+            </label>
+            <button onClick={onClose} className="p-1 rounded hover:bg-gray-200">
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
+        {/* Main content */}
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 border-r overflow-hidden">
-            <div className="p-4 h-full flex flex-col gap-3 min-h-0">
-              <div>
-                <label className="text-xs text-gray-500">Nombre</label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full border rounded px-2 py-1 text-sm"
+          {/* Panel izquierdo: toolbar + zoom + canvas */}
+          <div className="flex-1 flex flex-col border-r overflow-hidden">
+            {/* Toolbar */}
+            <SnippetToolbar
+              tool={tool}
+              onToolChange={setTool}
+              strokeColor={strokeColor}
+              onStrokeColorChange={setStrokeColor}
+              strokeWidth={strokeWidth}
+              onStrokeWidthChange={setStrokeWidth}
+              fillColor={fillColor}
+              onFillColorChange={setFillColor}
+              onCropModeToggle={handleCropModeToggle}
+              isCropMode={isCropMode}
+            />
+
+            {/* Zoom controls */}
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 border-b text-xs">
+              <button
+                onClick={handleZoomOut}
+                className="p-1 rounded hover:bg-gray-200"
+                title="Alejar (Ctrl -)"
+              >
+                <ZoomOut size={14} />
+              </button>
+              <span className="w-12 text-center font-medium">{zoom}%</span>
+              <button
+                onClick={handleZoomIn}
+                className="p-1 rounded hover:bg-gray-200"
+                title="Acercar (Ctrl +)"
+              >
+                <ZoomIn size={14} />
+              </button>
+              <button
+                onClick={handleZoomFit}
+                className="p-1 rounded hover:bg-gray-200 ml-1"
+                title="Ajustar"
+              >
+                <Maximize size={14} />
+              </button>
+              <span className="text-gray-400 ml-2">{snippet.width}×{snippet.height}px</span>
+            </div>
+
+            {/* Canvas area */}
+            <div
+              ref={containerRef}
+              className="flex-1 overflow-auto bg-gray-200 p-4"
+              onWheel={handleWheelZoom}
+            >
+              {isPreviewRefreshing && (
+                <div className="absolute inset-0 bg-white/70 flex items-center justify-center text-gray-500 text-sm z-10">
+                  Actualizando...
+                </div>
+              )}
+              <div
+                className="relative mx-auto bg-white shadow-md"
+                style={{
+                  width: scaledWidth,
+                  height: scaledHeight,
+                }}
+                onDoubleClick={handleDoubleClickZoom}
+              >
+                <img
+                  ref={imgRef}
+                  src={imageUrl}
+                  alt={snippet.name}
+                  className="block w-full h-full object-contain pointer-events-none"
+                  draggable={false}
                 />
-              </div>
-
-              <div className="flex items-center gap-3 text-xs text-gray-600">
-                <span>Versión actual: v{snippet.current_version}</span>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={propagateEnabled}
-                    onChange={(e) => setPropagateEnabled(e.target.checked)}
-                  />
-                  Propagar en canvas (página actual)
-                </label>
-              </div>
-
-              <div className="relative flex-1 min-h-0 border rounded bg-gray-50 overflow-auto">
-                {isPreviewRefreshing && (
-                  <div className="absolute inset-0 bg-white/70 flex items-center justify-center text-gray-500 text-sm">
-                    Actualizando...
-                  </div>
-                )}
-                <div className="w-full h-full flex items-center justify-center">
-                  <div
-                    className="relative"
-                    style={{
-                      width: previewSize.width,
-                      height: previewSize.height,
-                    }}
-                  >
-                    <img
-                      ref={imgRef}
-                      src={imageUrl}
-                      alt={snippet.name}
-                      className="block w-full h-full object-contain"
-                      onLoad={() => {
-                        if (imgRef.current) {
-                          setPreviewSize({
-                            width: imgRef.current.clientWidth,
-                            height: imgRef.current.clientHeight,
-                          })
-                        }
-                      }}
-                    />
-                    <SnippetDrawingEditor
-                      imageWidth={snippet.width}
-                      imageHeight={snippet.height}
-                      scale={previewSize.width / Math.max(snippet.width, 1)}
-                      elements={overlayElements}
-                      onChange={(elements) => {
-                        setOverlayElements(elements)
-                        setDrawDirty(true)
-                      }}
-                    />
-                    {ocrDraft.length > 0 && (
-                      <div className="absolute inset-0 pointer-events-none">
-                        {ocrDraft.map((det, idx) => {
-                          const [x1, y1, x2, y2] = det.bbox
-                          const left = (x1 / snippet.width) * 100
-                          const top = (y1 / snippet.height) * 100
-                          const width = ((x2 - x1) / snippet.width) * 100
-                          const height = ((y2 - y1) / snippet.height) * 100
-                          const fontScale = previewSize.height / snippet.height
-                          const pxFontSize = Math.max(8, Math.round((y2 - y1) * fontScale * 0.5))
-                          return (
-                            <div
-                              key={`${idx}-${x1}-${y1}`}
-                              className="absolute flex items-center justify-center border border-blue-400/70 bg-white/60 rounded-sm"
-                              style={{
-                                left: `${left}%`,
-                                top: `${top}%`,
-                                width: `${width}%`,
-                                height: `${height}%`,
-                                fontSize: `${pxFontSize}px`,
-                              }}
-                            >
-                              <span className="text-blue-900 font-medium truncate px-1" title={det.text}>
-                                {det.text}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {detectedRegions.length > 0 && (
-                <div className="text-xs text-gray-600">
-                  {detectedRegions.length} regiones detectadas. Borra texto para aplicar cambios.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="w-80 flex flex-col">
-            <div className="p-4 border-b space-y-3">
-              <h4 className="text-sm font-semibold">Acciones</h4>
-              <button
-                className="w-full px-3 py-2 text-sm border rounded flex items-center gap-2 hover:bg-gray-50"
-                onClick={() => queueOp({ type: 'remove_bg' })}
-              >
-                <Droplet size={16} /> Quitar fondo blanco (cola)
-              </button>
-              <button
-                className="w-full px-3 py-2 text-sm border rounded flex items-center gap-2 hover:bg-gray-50"
-                onClick={() => detectMutation.mutate()}
-                disabled={detectMutation.isPending}
-              >
-                <Eye size={16} /> {detectMutation.isPending ? 'Detectando...' : 'Detectar texto'}
-              </button>
-              <button
-                className="w-full px-3 py-2 text-sm border rounded flex items-center gap-2 hover:bg-gray-50"
-                onClick={() => removeTextMutation.mutate()}
-                disabled={removeTextMutation.isPending || detectedRegions.length === 0}
-              >
-                <Wand2 size={16} /> {removeTextMutation.isPending ? 'Aplicando...' : 'Borrar texto detectado'}
-              </button>
-              <button
-                className="w-full px-3 py-2 text-sm border rounded flex items-center gap-2 hover:bg-gray-50"
-                onClick={() => qaMutation.mutate()}
-                disabled={qaMutation.isPending}
-              >
-                <AlertTriangle size={16} /> QA validate
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-sm font-semibold">OCR</h4>
-                  <button
-                    className="text-xs border rounded px-2 py-1 hover:bg-gray-50 disabled:opacity-50"
-                    onClick={handleSaveOnlyOcr}
-                    disabled={!ocrDirty || applyOpsMutation.isPending}
-                  >
-                    {applyOpsMutation.isPending ? 'Guardando OCR...' : 'Guardar OCR'}
-                  </button>
-                </div>
-                {ocrDraft.length === 0 ? (
-                  <p className="text-xs text-gray-500">Sin detecciones OCR para editar.</p>
-                ) : (
-                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
-                    {ocrDraft.map((det, idx) => (
-                      <div key={idx} className="border rounded p-2">
-                        <p className="text-[10px] text-gray-500 mb-1">
-                          bbox: [{det.bbox.map((v) => Math.round(v)).join(', ')}]
-                        </p>
-                        <input
-                          value={det.text}
-                          onChange={(e) => {
-                            const next = [...ocrDraft]
-                            next[idx] = { ...next[idx], text: e.target.value }
-                            setOcrDraft(next)
-                            setDetectedRegions(next)
-                            setOcrDirty(true)
+                <SnippetDrawingEditor
+                  imageWidth={snippet.width}
+                  imageHeight={snippet.height}
+                  scale={zoom / 100}
+                  elements={overlayElements}
+                  onChange={(elements) => {
+                    setOverlayElements(elements)
+                    setDrawDirty(true)
+                  }}
+                  tool={tool}
+                  strokeColor={strokeColor}
+                  strokeWidth={strokeWidth}
+                  fillColor={fillColor}
+                />
+                <SnippetCropOverlay
+                  imageWidth={snippet.width}
+                  imageHeight={snippet.height}
+                  scale={zoom / 100}
+                  isActive={isCropMode}
+                  onCrop={(region) => {
+                    // Añadir operación de copia de región
+                    queueOp({
+                      type: 'crop_copy',
+                      payload: {
+                        src_rect: region,
+                        dst_rect: region,
+                      },
+                    })
+                  }}
+                  onCancel={() => setIsCropMode(false)}
+                />
+                {ocrDraft.length > 0 && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    {ocrDraft.map((det, idx) => {
+                      const [x1, y1, x2, y2] = det.bbox
+                      const left = (x1 / snippet.width) * 100
+                      const top = (y1 / snippet.height) * 100
+                      const width = ((x2 - x1) / snippet.width) * 100
+                      const height = ((y2 - y1) / snippet.height) * 100
+                      const pxFontSize = Math.max(8, Math.round((y2 - y1) * (zoom / 100) * 0.5))
+                      return (
+                        <div
+                          key={`${idx}-${x1}-${y1}`}
+                          className="absolute flex items-center justify-center border border-blue-400/70 bg-white/60 rounded-sm"
+                          style={{
+                            left: `${left}%`,
+                            top: `${top}%`,
+                            width: `${width}%`,
+                            height: `${height}%`,
+                            fontSize: `${pxFontSize}px`,
                           }}
-                          className="w-full border rounded px-2 py-1 text-xs"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <h4 className="text-sm font-semibold mb-2">Historial</h4>
-                {metaQuery.isLoading && <p className="text-xs text-gray-500">Cargando...</p>}
-                {metaQuery.data?.versions?.length ? (
-                  <div className="space-y-2 text-xs">
-                    {metaQuery.data.versions
-                      .slice()
-                      .sort((a, b) => b.version - a.version)
-                      .map((version) => (
-                        <div key={version.version} className="border rounded px-2 py-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold">v{version.version}</span>
-                            <button
-                              className="text-primary-600 hover:underline"
-                              onClick={() => restoreMutation.mutate(version.version)}
-                              disabled={restoreMutation.isPending}
-                            >
-                              <Undo2 size={14} />
-                            </button>
-                          </div>
-                          <p className="text-gray-500">{new Date(version.created_at).toLocaleString()}</p>
-                          {version.comment && <p className="text-gray-600">{version.comment}</p>}
+                        >
+                          <span className="text-blue-900 font-medium truncate px-1" title={det.text}>
+                            {det.text}
+                          </span>
                         </div>
-                      ))}
+                      )
+                    })}
                   </div>
-                ) : (
-                  <p className="text-xs text-gray-500">Sin versiones previas.</p>
                 )}
               </div>
-
-              {queuedOps.length > 0 && (
-                <div className="text-xs text-gray-600 bg-primary-50 border border-primary-100 rounded px-2 py-1">
-                  {queuedOps.length} operación(es) pendiente(s) • Guarda para aplicar.
-                </div>
-              )}
-              {drawDirty && (
-                <div className="text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded px-2 py-1">
-                  {overlayElements.length} anotación(es) de dibujo pendiente(s) • Guarda para aplicar.
-                </div>
-              )}
-            </div>
-
-            <div className="p-4 border-t flex gap-2">
-              <button
-                className="flex-1 border rounded px-3 py-2 text-sm hover:bg-gray-50"
-                onClick={onClose}
-              >
-                Cancelar
-              </button>
-              <button
-                className="flex-1 bg-primary-600 text-white rounded px-3 py-2 text-sm hover:bg-primary-700 disabled:opacity-50"
-                onClick={handleSaveName}
-                disabled={applyOpsMutation.isPending}
-              >
-                {applyOpsMutation.isPending ? 'Guardando...' : 'Guardar'}
-              </button>
             </div>
           </div>
+
+          {/* Panel derecho: Inspector con tabs */}
+          <div className="w-72 flex flex-col bg-gray-50">
+            <SnippetInspector
+              snippetName={snippet.name}
+              currentVersion={snippet.current_version}
+              meta={metaQuery.data}
+              metaLoading={metaQuery.isLoading}
+              ocrDraft={ocrDraft}
+              onOcrDraftChange={(draft) => {
+                setOcrDraft(draft)
+                setDetectedRegions(draft)
+                setOcrDirty(true)
+              }}
+              ocrDirty={ocrDirty}
+              queuedOps={queuedOps}
+              drawDirty={drawDirty}
+              overlayCount={overlayElements.length}
+              onRemoveBg={() => queueOp({ type: 'remove_bg' })}
+              onDetectOcr={() => detectMutation.mutate()}
+              onRemoveText={() => removeTextMutation.mutate()}
+              onQaValidate={() => qaMutation.mutate()}
+              onRestoreVersion={(v) => restoreMutation.mutate(v)}
+              onSaveOcr={handleSaveOnlyOcr}
+              detectPending={detectMutation.isPending}
+              removeTextPending={removeTextMutation.isPending}
+              qaPending={qaMutation.isPending}
+              restorePending={restoreMutation.isPending}
+              saveOcrPending={applyOpsMutation.isPending}
+              hasDetectedRegions={detectedRegions.length > 0}
+              ocrTypography={ocrTypography}
+              onOcrTypographyChange={setOcrTypography}
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-4 py-2 border-t bg-gray-50 rounded-b-lg">
+          <button
+            className="px-4 py-1.5 text-sm border rounded hover:bg-gray-100"
+            onClick={onClose}
+          >
+            Cancelar
+          </button>
+          <button
+            className="px-4 py-1.5 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50"
+            onClick={handleSave}
+            disabled={applyOpsMutation.isPending}
+          >
+            {applyOpsMutation.isPending ? 'Guardando...' : 'Guardar'}
+          </button>
         </div>
       </div>
     </div>

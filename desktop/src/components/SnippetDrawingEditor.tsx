@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { MousePointer2, Minus, Square, Circle, Route, Type } from 'lucide-react'
 import { DrawingCanvas } from './DrawingCanvas'
 import type { DrawingTool } from './DrawingCanvas'
 import type { DrawingElement, SnippetOverlayElement } from '../lib/api'
@@ -10,22 +9,24 @@ interface SnippetDrawingEditorProps {
   scale: number
   elements: SnippetOverlayElement[]
   onChange: (elements: SnippetOverlayElement[]) => void
+  // Props controladas desde SnippetEditorModal (toolbar unificada)
+  tool: DrawingTool
+  strokeColor: string
+  strokeWidth: number
+  fillColor: string | null
 }
 
-const TOOL_OPTIONS: Array<{ id: DrawingTool; label: string; icon: React.ReactNode }> = [
-  { id: 'select', label: 'Seleccionar', icon: <MousePointer2 size={14} /> },
-  { id: 'line', label: 'Línea', icon: <Minus size={14} /> },
-  { id: 'polyline', label: 'Polilínea', icon: <Route size={14} /> },
-  { id: 'rect', label: 'Rectángulo', icon: <Square size={14} /> },
-  { id: 'circle', label: 'Círculo', icon: <Circle size={14} /> },
-  { id: 'add_text_box', label: 'Texto', icon: <Type size={14} /> },
-]
-
-export function SnippetDrawingEditor({ imageWidth, imageHeight, scale, elements, onChange }: SnippetDrawingEditorProps) {
-  const [tool, setTool] = useState<DrawingTool>('select')
-  const [strokeColor, setStrokeColor] = useState('#ff0000')
-  const [strokeWidth, setStrokeWidth] = useState(2)
-  const [fillColor, setFillColor] = useState<string | null>(null)
+export function SnippetDrawingEditor({ 
+  imageWidth, 
+  imageHeight, 
+  scale, 
+  elements, 
+  onChange,
+  tool,
+  strokeColor,
+  strokeWidth,
+  fillColor,
+}: SnippetDrawingEditorProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
 
   const drawings = useMemo<DrawingElement[]>(() => {
@@ -56,41 +57,7 @@ export function SnippetDrawingEditor({ imageWidth, imageHeight, scale, elements,
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        {TOOL_OPTIONS.map((t) => (
-          <button
-            key={String(t.id)}
-            type="button"
-            onClick={() => setTool(t.id)}
-            className={`px-2 py-1 border rounded flex items-center gap-1 ${tool === t.id ? 'bg-primary-100 text-primary-700 border-primary-300' : 'hover:bg-gray-50'}`}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
-        <label className="flex items-center gap-1 ml-2">
-          <span>Trazo</span>
-          <input type="color" value={strokeColor} onChange={(e) => setStrokeColor(e.target.value)} />
-        </label>
-        <label className="flex items-center gap-1">
-          <span>Grosor</span>
-          <select className="border rounded px-1 py-0.5" value={strokeWidth} onChange={(e) => setStrokeWidth(Number(e.target.value))}>
-            {[1, 2, 3, 5, 8].map((w) => (
-              <option key={w} value={w}>{w}px</option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-1">
-          <input type="checkbox" checked={fillColor !== null} onChange={(e) => setFillColor(e.target.checked ? '#ffffff' : null)} />
-          Relleno
-        </label>
-        {fillColor !== null && (
-          <input type="color" value={fillColor} onChange={(e) => setFillColor(e.target.value)} />
-        )}
-      </div>
-
-      <div className="absolute inset-0">
+    <div className="absolute inset-0 z-20">
         <DrawingCanvas
           imageSize={{ width: imageWidth, height: imageHeight }}
           scale={scale}
@@ -151,7 +118,6 @@ export function SnippetDrawingEditor({ imageWidth, imageHeight, scale, elements,
             onChange([...elements, item])
           }}
         />
-      </div>
     </div>
   )
 }

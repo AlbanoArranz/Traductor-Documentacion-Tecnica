@@ -159,7 +159,10 @@ def replace_ocr_text_regions(img: Image.Image, detections: List[dict], shrink_px
         if x2 <= x1 or y2 <= y1:
             continue
 
-        font_size = max(10, int((y2 - y1) * 0.7))
+        # Base font size from bbox height, apply font_size_ui multiplier if present
+        base_font_size = max(10, int((y2 - y1) * 0.7))
+        font_size_multiplier = det.get("font_size_ui", 100) / 100.0 if det.get("font_size_ui") else 1.0
+        font_size = max(10, int(base_font_size * font_size_multiplier))
         try:
             font = ImageFont.truetype("arial.ttf", font_size)
         except Exception:
@@ -217,6 +220,50 @@ def draw_overlay_elements(img: Image.Image, elements: List[dict]) -> Image.Image
     return working
 
 
+def crop_copy_region(
+    img: Image.Image,
+    src_rect: Dict[str, int],
+    dst_rect: Dict[str, int],
+) -> Image.Image:
+    """Copy a rectangular region from src_rect to dst_rect."""
+    working = img.convert("RGBA")
+    
+    sx = max(0, src_rect.get("x", 0))
+    sy = max(0, src_rect.get("y", 0))
+    sw = max(1, src_rect.get("w", 1))
+    sh = max(1, src_rect.get("h", 1))
+    
+    dx = max(0, dst_rect.get("x", 0))
+    dy = max(0, dst_rect.get("y", 0))
+    dw = max(1, dst_rect.get("w", sw))
+    dh = max(1, dst_rect.get("h", sh))
+    
+    # Clamp source region to image bounds
+    img_w, img_h = working.size
+    sx = min(sx, img_w - 1)
+    sy = min(sy, img_h - 1)
+    sw = min(sw, img_w - sx)
+    sh = min(sh, img_h - sy)
+    
+    if sw <= 0 or sh <= 0:
+        return working
+    
+    # Crop source region
+    try:
+        cropped = working.crop((sx, sy, sx + sw, sy + sh))
+        
+        # Resize if destination size differs
+        if dw != sw or dh != sh:
+            cropped = cropped.resize((dw, dh), Image.Resampling.LANCZOS)
+        
+        # Paste at destination
+        working.paste(cropped, (dx, dy))
+    except Exception as exc:
+        logger.warning("[SNIPPET] crop_copy failed: %s", exc)
+    
+    return working
+
+
 def render_from_ops(snippet_id: str, ops: Optional[List[Dict[str, Any]]]) -> Image.Image:
     base_path = get_render_path(snippet_id)
     with Image.open(base_path) as img:
@@ -238,6 +285,10 @@ def render_from_ops(snippet_id: str, ops: Optional[List[Dict[str, Any]]]) -> Ima
         elif op_type == "draw_overlay":
             elements = payload.get("elements") or []
             current = draw_overlay_elements(current, elements)
+        elif op_type == "crop_copy":
+            src_rect = payload.get("src_rect") or {}
+            dst_rect = payload.get("dst_rect") or {}
+            current = crop_copy_region(current, src_rect, dst_rect)
         else:
             logger.warning("[SNIPPET] Unsupported op '%s'", op_type)
 

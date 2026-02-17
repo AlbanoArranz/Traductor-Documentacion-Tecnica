@@ -29,6 +29,7 @@ class OcrDetection(BaseModel):
     bbox: List[float]  # [x1, y1, x2, y2] relativas al recorte
     text: str
     confidence: float
+    font_size_ui: Optional[int] = None  # percentage multiplier for UI typography (100 = normal)
 
 
 class SnippetVersionMeta(BaseModel):
@@ -394,6 +395,7 @@ class SnippetUpdateOp(BaseModel):
         "ocr_remove_text",
         "ocr_replace_text",
         "draw_overlay",
+        "crop_copy",
     ]
     payload: Optional[dict] = None
 

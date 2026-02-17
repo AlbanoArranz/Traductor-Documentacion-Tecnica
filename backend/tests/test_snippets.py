@@ -393,7 +393,7 @@ class TestSnippetsAPI:
 
     def test_patch_propagate_enabled_requires_project_id(self, sample_png_bytes):
         create_resp = self.client.post(
-            "/snippets/upload",
+            f"/snippets/upload",
             files={"file": ("test.png", sample_png_bytes, "image/png")},
             data={"name": "PropErr", "remove_bg": "false"},
         )
@@ -413,3 +413,147 @@ class TestSnippetsAPI:
         )
 
         assert resp.status_code == 400
+
+    def test_patch_ocr_replace_text_updates_detections(self, sample_png_bytes):
+        create_resp = self.client.post(
+            "/snippets/upload",
+            files={"file": ("test.png", sample_png_bytes, "image/png")},
+            data={"name": "OCRReplace", "remove_bg": "false"},
+        )
+        assert create_resp.status_code == 200
+        snippet_id = create_resp.json()["id"]
+
+        resp = self.client.patch(
+            f"/snippets/{snippet_id}",
+            json={
+                "ops": [
+                    {
+                        "type": "ocr_replace_text",
+                        "payload": {
+                            "regions": [
+                                {
+                                    "bbox": [10, 10, 40, 25],
+                                    "text": "L1_NEW",
+                                    "confidence": 0.99,
+                                }
+                            ],
+                            "shrink_px": 2,
+                        },
+                    }
+                ],
+                "comment": "replace text",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ocr_detections"][0]["text"] == "L1_NEW"
+        assert data["current_version"] == 2
+
+    def test_patch_draw_overlay_creates_new_version(self, sample_png_bytes):
+        create_resp = self.client.post(
+            "/snippets/upload",
+            files={"file": ("test.png", sample_png_bytes, "image/png")},
+            data={"name": "DrawOverlay", "remove_bg": "false"},
+        )
+        assert create_resp.status_code == 200
+        snippet_id = create_resp.json()["id"]
+
+        resp = self.client.patch(
+            f"/snippets/{snippet_id}",
+            json={
+                "ops": [
+                    {
+                        "type": "draw_overlay",
+                        "payload": {
+                            "elements": [
+                                {
+                                    "element_type": "line",
+                                    "points": [5, 5, 80, 5],
+                                    "stroke_color": "#ff0000",
+                                    "stroke_width": 2,
+                                    "fill_color": None,
+                                    "text": None,
+                                    "font_size": 14,
+                                    "font_family": "Arial",
+                                    "text_color": "#ff0000",
+                                }
+                            ]
+                        },
+                    }
+                ],
+                "comment": "draw overlay",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["current_version"] == 2
+
+    def test_patch_consecutive_ocr_replace_text(self, sample_png_bytes):
+        """Regression test: two consecutive OCR replace operations should increment version correctly."""
+        create_resp = self.client.post(
+            "/snippets/upload",
+            files={"file": ("test.png", sample_png_bytes, "image/png")},
+            data={"name": "ConsecutiveOCR", "remove_bg": "false"},
+        )
+        assert create_resp.status_code == 200
+        snippet_id = create_resp.json()["id"]
+
+        # First OCR replace
+        resp1 = self.client.patch(
+            f"/snippets/{snippet_id}",
+            json={
+                "ops": [
+                    {
+                        "type": "ocr_replace_text",
+                        "payload": {
+                            "regions": [
+                                {
+                                    "bbox": [10, 10, 40, 25],
+                                    "text": "FIRST",
+                                    "confidence": 0.95,
+                                    "font_size_ui": 100,
+                                }
+                            ],
+                            "shrink_px": 2,
+                        },
+                    }
+                ],
+                "comment": "first replace",
+            },
+        )
+        assert resp1.status_code == 200
+        data1 = resp1.json()
+        assert data1["current_version"] == 2
+        assert data1["ocr_detections"][0]["text"] == "FIRST"
+
+        # Second OCR replace on same region with different text
+        resp2 = self.client.patch(
+            f"/snippets/{snippet_id}",
+            json={
+                "ops": [
+                    {
+                        "type": "ocr_replace_text",
+                        "payload": {
+                            "regions": [
+                                {
+                                    "bbox": [10, 10, 40, 25],
+                                    "text": "SECOND",
+                                    "confidence": 0.95,
+                                    "font_size_ui": 120,
+                                }
+                            ],
+                            "shrink_px": 2,
+                        },
+                    }
+                ],
+                "comment": "second replace",
+            },
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        assert data2["current_version"] == 3
+        assert data2["ocr_detections"][0]["text"] == "SECOND"
+        # Verify font_size_ui is preserved
+        assert data2["ocr_detections"][0].get("font_size_ui") == 120
