@@ -557,3 +557,78 @@ class TestSnippetsAPI:
         assert data2["ocr_detections"][0]["text"] == "SECOND"
         # Verify font_size_ui is preserved
         assert data2["ocr_detections"][0].get("font_size_ui") == 120
+
+    def test_patch_erase_region_rect_and_circle(self, sample_png_bytes):
+        create_resp = self.client.post(
+            "/snippets/upload",
+            files={"file": ("test.png", sample_png_bytes, "image/png")},
+            data={"name": "EraseRegion", "remove_bg": "false"},
+        )
+        assert create_resp.status_code == 200
+        snippet_id = create_resp.json()["id"]
+
+        resp = self.client.patch(
+            f"/snippets/{snippet_id}",
+            json={
+                "ops": [
+                    {
+                        "type": "erase_region",
+                        "payload": {
+                            "rect": {"x": 5, "y": 5, "w": 20, "h": 20},
+                            "fill_color": "#ffffff",
+                        },
+                    },
+                    {
+                        "type": "erase_region",
+                        "payload": {
+                            "circle": {"cx": 50, "cy": 40, "r": 8},
+                            "fill_color": "#ffffff",
+                        },
+                    },
+                ],
+                "comment": "erase rect and circle",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["current_version"] == 2
+
+    def test_patch_ocr_replace_text_with_text_color(self, sample_png_bytes):
+        create_resp = self.client.post(
+            "/snippets/upload",
+            files={"file": ("test.png", sample_png_bytes, "image/png")},
+            data={"name": "OCRColor", "remove_bg": "false"},
+        )
+        assert create_resp.status_code == 200
+        snippet_id = create_resp.json()["id"]
+
+        resp = self.client.patch(
+            f"/snippets/{snippet_id}",
+            json={
+                "ops": [
+                    {
+                        "type": "ocr_replace_text",
+                        "payload": {
+                            "regions": [
+                                {
+                                    "bbox": [10, 10, 40, 25],
+                                    "text": "RED",
+                                    "confidence": 0.95,
+                                    "font_size_ui": 100,
+                                    "text_color": "#ff0000",
+                                }
+                            ],
+                            "shrink_px": 2,
+                        },
+                    }
+                ],
+                "comment": "ocr with text color",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["current_version"] == 2
+        assert data["ocr_detections"][0]["text"] == "RED"
+        assert data["ocr_detections"][0].get("text_color") == "#ff0000"

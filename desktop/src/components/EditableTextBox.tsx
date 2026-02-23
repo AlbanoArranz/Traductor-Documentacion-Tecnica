@@ -127,15 +127,44 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
         case 'e': nx2 += dxOrig; break;
       }
 
+      const minW = 20;
+      const minH = 10;
+      const movesWest = ['nw', 'w', 'sw'].includes(resizeCorner);
+      const movesEast = ['ne', 'e', 'se'].includes(resizeCorner);
+      const movesNorth = ['nw', 'n', 'ne'].includes(resizeCorner);
+      const movesSouth = ['sw', 's', 'se'].includes(resizeCorner);
+
       // Normalizar bbox (mantener orden)
       if (nx1 > nx2) [nx1, nx2] = [nx2, nx1]
       if (ny1 > ny2) [ny1, ny2] = [ny2, ny1]
 
-      if (nx2 - nx1 > 20 && ny2 - ny1 > 10) {
-        const next = [nx1, ny1, nx2, ny2];
-        localBboxRef.current = next;
-        setLocalBbox(next);
+      if (nx2 - nx1 < minW) {
+        if (movesWest && !movesEast) {
+          nx1 = nx2 - minW;
+        } else if (movesEast && !movesWest) {
+          nx2 = nx1 + minW;
+        } else {
+          const cx = (nx1 + nx2) / 2;
+          nx1 = cx - minW / 2;
+          nx2 = cx + minW / 2;
+        }
       }
+
+      if (ny2 - ny1 < minH) {
+        if (movesNorth && !movesSouth) {
+          ny1 = ny2 - minH;
+        } else if (movesSouth && !movesNorth) {
+          ny2 = ny1 + minH;
+        } else {
+          const cy = (ny1 + ny2) / 2;
+          ny1 = cy - minH / 2;
+          ny2 = cy + minH / 2;
+        }
+      }
+
+      const next = [nx1, ny1, nx2, ny2];
+      localBboxRef.current = next;
+      setLocalBbox(next);
     }
   }, [isDragging, isResizing, resizeCorner, scale]);
 
@@ -159,7 +188,8 @@ export const EditableTextBox: React.FC<EditableTextBoxProps> = ({
           // For resize: the cur bbox was computed from startBbox (= region.bbox) deltas
           saveBbox = cur;
         }
-        if (saveBbox[0] !== region.bbox[0] || saveBbox[1] !== region.bbox[1] || saveBbox[2] !== region.bbox[2] || saveBbox[3] !== region.bbox[3]) {
+        const hasMeaningfulDelta = saveBbox.some((value, idx) => Math.abs(value - region.bbox[idx]) > 0.5);
+        if (hasMeaningfulDelta) {
           onUpdate({ bbox: saveBbox });
         }
       }

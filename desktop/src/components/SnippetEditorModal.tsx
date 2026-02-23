@@ -39,6 +39,7 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
   const [fillColor, setFillColor] = useState<string | null>(null)
   const [isCropMode, setIsCropMode] = useState(false)
   const [ocrTypography, setOcrTypography] = useState({ fontSize: 100, fontFamily: 'Arial' })
+  const [eraserRadius, setEraserRadius] = useState(20)
   const containerRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
 
@@ -294,6 +295,8 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
               onFillColorChange={setFillColor}
               onCropModeToggle={handleCropModeToggle}
               isCropMode={isCropMode}
+              eraserRadius={eraserRadius}
+              onEraserRadiusChange={setEraserRadius}
             />
 
             {/* Zoom controls */}
@@ -362,6 +365,19 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
                   strokeColor={strokeColor}
                   strokeWidth={strokeWidth}
                   fillColor={fillColor}
+                  eraserRadius={eraserRadius}
+                  onEraseRect={(rect) => {
+                    queueOp({
+                      type: 'erase_region',
+                      payload: { rect, fill_color: '#ffffff' },
+                    })
+                  }}
+                  onEraseCircle={(circle) => {
+                    queueOp({
+                      type: 'erase_region',
+                      payload: { circle, fill_color: '#ffffff' },
+                    })
+                  }}
                 />
                 <SnippetCropOverlay
                   imageWidth={snippet.width}
@@ -401,7 +417,11 @@ export function SnippetEditorModal({ snippet, projectId, pageNumber, onClose, on
                             fontSize: `${pxFontSize}px`,
                           }}
                         >
-                          <span className="text-blue-900 font-medium truncate px-1" title={det.text}>
+                          <span
+                            className="font-medium truncate px-1"
+                            style={{ color: det.text_color || '#1e3a8a' }}
+                            title={det.text}
+                          >
                             {det.text}
                           </span>
                         </div>

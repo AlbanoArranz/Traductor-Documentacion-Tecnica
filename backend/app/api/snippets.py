@@ -30,6 +30,7 @@ class OcrDetection(BaseModel):
     text: str
     confidence: float
     font_size_ui: Optional[int] = None  # percentage multiplier for UI typography (100 = normal)
+    text_color: Optional[str] = None
 
 
 class SnippetVersionMeta(BaseModel):
@@ -396,6 +397,7 @@ class SnippetUpdateOp(BaseModel):
         "ocr_replace_text",
         "draw_overlay",
         "crop_copy",
+        "erase_region",
     ]
     payload: Optional[dict] = None
 

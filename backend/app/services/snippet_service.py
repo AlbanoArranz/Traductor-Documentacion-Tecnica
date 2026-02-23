@@ -143,6 +143,40 @@ def erase_text_regions(img: Image.Image, detections: List[dict], shrink_px: int 
     return working
 
 
+def erase_region(
+    img: Image.Image,
+    rect: Optional[Dict[str, float]] = None,
+    circle: Optional[Dict[str, float]] = None,
+    fill_color: str = "#ffffff",
+) -> Image.Image:
+    working = img.convert("RGBA")
+    draw = ImageDraw.Draw(working)
+    img_w, img_h = working.size
+
+    try:
+        if rect:
+            x = max(0, int(rect.get("x", 0)))
+            y = max(0, int(rect.get("y", 0)))
+            w = max(1, int(rect.get("w", 1)))
+            h = max(1, int(rect.get("h", 1)))
+            x2 = min(img_w, x + w)
+            y2 = min(img_h, y + h)
+            draw.rectangle([x, y, x2, y2], fill=fill_color)
+        elif circle:
+            cx = float(circle.get("cx", 0))
+            cy = float(circle.get("cy", 0))
+            r = max(1.0, float(circle.get("r", 1)))
+            x1 = max(0.0, cx - r)
+            y1 = max(0.0, cy - r)
+            x2 = min(float(img_w), cx + r)
+            y2 = min(float(img_h), cy + r)
+            draw.ellipse([x1, y1, x2, y2], fill=fill_color)
+    except Exception as exc:
+        logger.warning("[SNIPPET] erase_region failed: %s", exc)
+
+    return working
+
+
 def replace_ocr_text_regions(img: Image.Image, detections: List[dict], shrink_px: int = 2) -> Image.Image:
     if not detections:
         return img
@@ -173,7 +207,8 @@ def replace_ocr_text_regions(img: Image.Image, detections: List[dict], shrink_px
         text_h = max(1, text_bbox[3] - text_bbox[1])
         tx = x1 + ((x2 - x1) - text_w) / 2
         ty = y1 + ((y2 - y1) - text_h) / 2
-        draw.text((tx, ty), text, fill="black", font=font)
+        text_color = det.get("text_color") or "black"
+        draw.text((tx, ty), text, fill=text_color, font=font)
 
     return working
 
@@ -289,6 +324,13 @@ def render_from_ops(snippet_id: str, ops: Optional[List[Dict[str, Any]]]) -> Ima
             src_rect = payload.get("src_rect") or {}
             dst_rect = payload.get("dst_rect") or {}
             current = crop_copy_region(current, src_rect, dst_rect)
+        elif op_type == "erase_region":
+            current = erase_region(
+                current,
+                rect=payload.get("rect"),
+                circle=payload.get("circle"),
+                fill_color=payload.get("fill_color", "#ffffff"),
+            )
         else:
             logger.warning("[SNIPPET] Unsupported op '%s'", op_type)
 

@@ -238,6 +238,7 @@ export interface OcrDetection {
   text: string
   confidence: number
   font_size_ui?: number  // percentage multiplier for UI typography (100 = normal), separate from detection confidence
+  text_color?: string
 }
 
 export interface SnippetOverlayElement {
@@ -258,6 +259,7 @@ export type SnippetOp =
   | { type: 'ocr_replace_text'; payload?: { regions?: OcrDetection[]; shrink_px?: number } }
   | { type: 'draw_overlay'; payload?: { elements?: SnippetOverlayElement[] } }
   | { type: 'crop_copy'; payload?: { src_rect: { x: number; y: number; w: number; h: number }; dst_rect: { x: number; y: number; w: number; h: number } } }
+  | { type: 'erase_region'; payload?: { rect?: { x: number; y: number; w: number; h: number }; circle?: { cx: number; cy: number; r: number }; fill_color?: string } }
 
 export interface SnippetVersionMeta {
   version: number

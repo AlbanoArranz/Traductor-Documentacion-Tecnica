@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { DrawingElement } from '../lib/api'
 
-export type DrawingTool = 'select' | 'line' | 'rect' | 'circle' | 'polyline' | 'add_text_box' | 'capture' | 'place_snippet' | null
+export type DrawingTool = 'select' | 'line' | 'rect' | 'circle' | 'polyline' | 'add_text_box' | 'capture' | 'place_snippet' | 'eraser' | null
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | null
+type EraserDragMode = 'draw' | 'move' | 'resize_nw' | 'resize_ne' | 'resize_sw' | 'resize_se' | null
 
 interface DrawingCanvasProps {
   imageSize: { width: number; height: number }
@@ -20,6 +21,10 @@ interface DrawingCanvasProps {
   onAddTextBox?: (position: { x: number; y: number }) => void
   onCaptureArea?: (bbox: number[]) => void
   onPlaceSnippet?: (position: { x: number; y: number }) => void
+  // Eraser props
+  eraserRadius?: number
+  onEraseRect?: (rect: { x: number; y: number; w: number; h: number }) => void
+  onEraseCircle?: (circle: { cx: number; cy: number; r: number }) => void
 }
 
 export function DrawingCanvas({
@@ -38,6 +43,9 @@ export function DrawingCanvas({
   onAddTextBox,
   onCaptureArea,
   onPlaceSnippet,
+  eraserRadius = 20,
+  onEraseRect,
+  onEraseCircle,
 }: DrawingCanvasProps) {
   const [isDrawing, setIsDrawing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -57,7 +65,21 @@ export function DrawingCanvas({
   const [lastClickTime, setLastClickTime] = useState<number | null>(null)
   const [marqueeStart, setMarqueeStart] = useState<{ x: number; y: number } | null>(null)
   const [marqueeEnd, setMarqueeEnd] = useState<{ x: number; y: number } | null>(null)
+  // Eraser states
+  const [eraserRect, setEraserRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [eraserPreview, setEraserPreview] = useState<{ x: number; y: number } | null>(null)
+  const [isEraserDragging, setIsEraserDragging] = useState(false)
+  const [eraserDragMode, setEraserDragMode] = useState<EraserDragMode>(null)
+  const [eraserDragOffset, setEraserDragOffset] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 })
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  const normalizeEraserRect = (rect: { x: number; y: number; w: number; h: number }) => {
+    const x = rect.w >= 0 ? rect.x : rect.x + rect.w
+    const y = rect.h >= 0 ? rect.y : rect.y + rect.h
+    const w = Math.abs(rect.w)
+    const h = Math.abs(rect.h)
+    return { x, y, w, h }
+  }
 
   const getScaledPoint = (e: React.MouseEvent) => {
     if (!canvasRef.current) return { x: 0, y: 0 }
@@ -207,37 +229,85 @@ export function DrawingCanvas({
       const point = getScaledPoint(e)
       const hitId = _hitTestTopFirst(point)
       if (!hitId) {
-        // Start marquee selection
+        // Start marquee selection y limpiar selección actual (click vacío)
+        if (selectedDrawingIds.length > 0) {
+          onDrawingSelect([])
+        }
         setMarqueeStart(point)
         setMarqueeEnd(point)
-        onDrawingSelect([])
         return
       }
 
-      if (e.ctrlKey || e.metaKey) {
+      const isMultiToggle = e.ctrlKey || e.metaKey
+      let nextSelection: string[]
+      if (isMultiToggle) {
         if (selectedDrawingIds.includes(hitId)) {
-          onDrawingSelect(selectedDrawingIds.filter(id => id !== hitId))
+          nextSelection = selectedDrawingIds.filter(id => id !== hitId)
         } else {
-          onDrawingSelect([...selectedDrawingIds, hitId])
+          nextSelection = [...selectedDrawingIds, hitId]
         }
       } else {
-        if (selectedDrawingIds.length !== 1 || selectedDrawingIds[0] !== hitId) {
-          onDrawingSelect([hitId])
-        }
+        nextSelection = [hitId]
       }
 
-      const willDragIds = (e.ctrlKey || e.metaKey)
-        ? (selectedDrawingIds.includes(hitId) ? selectedDrawingIds : [...selectedDrawingIds, hitId])
-        : [hitId]
+      onDrawingSelect(nextSelection)
 
-      if (onDrawingUpdate && willDragIds.includes(hitId)) {
+      if (onDrawingUpdate && nextSelection.includes(hitId)) {
         setIsDragging(true)
         setDragStart(point)
+        setMarqueeStart(null)
+        setMarqueeEnd(null)
       }
       return
     }
 
     const point = getScaledPoint(e)
+
+    if (tool === 'eraser') {
+      const hitPadding = 10 / Math.max(scale, 0.1)
+      if (eraserRect) {
+        const r = normalizeEraserRect(eraserRect)
+        const nearNW = Math.abs(point.x - r.x) <= hitPadding && Math.abs(point.y - r.y) <= hitPadding
+        const nearNE = Math.abs(point.x - (r.x + r.w)) <= hitPadding && Math.abs(point.y - r.y) <= hitPadding
+        const nearSW = Math.abs(point.x - r.x) <= hitPadding && Math.abs(point.y - (r.y + r.h)) <= hitPadding
+        const nearSE = Math.abs(point.x - (r.x + r.w)) <= hitPadding && Math.abs(point.y - (r.y + r.h)) <= hitPadding
+        const inside = point.x >= r.x && point.x <= r.x + r.w && point.y >= r.y && point.y <= r.y + r.h
+
+        if (nearNW) {
+          setEraserDragMode('resize_nw')
+          setIsEraserDragging(true)
+          return
+        }
+        if (nearNE) {
+          setEraserDragMode('resize_ne')
+          setIsEraserDragging(true)
+          return
+        }
+        if (nearSW) {
+          setEraserDragMode('resize_sw')
+          setIsEraserDragging(true)
+          return
+        }
+        if (nearSE) {
+          setEraserDragMode('resize_se')
+          setIsEraserDragging(true)
+          return
+        }
+        if (inside) {
+          setEraserDragMode('move')
+          setEraserDragOffset({ dx: point.x - r.x, dy: point.y - r.y })
+          setEraserRect(r)
+          setIsEraserDragging(true)
+          return
+        }
+      }
+
+      // New rectangle draw
+      setEraserRect({ x: point.x, y: point.y, w: 0, h: 0 })
+      setEraserDragMode('draw')
+      setIsEraserDragging(true)
+      return
+    }
 
     if (tool === 'add_text_box') {
       // Crear región de texto (TextRegion) en lugar de DrawingElement
@@ -298,6 +368,45 @@ export function DrawingCanvas({
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    // Eraser tool: actualizar preview o rectángulo
+    if (tool === 'eraser') {
+      const point = getScaledPoint(e)
+      setEraserPreview(point)
+      
+      if (isEraserDragging && eraserRect) {
+        if (eraserDragMode === 'draw') {
+          const w = point.x - eraserRect.x
+          const h = point.y - eraserRect.y
+          setEraserRect({ ...eraserRect, w, h })
+        } else if (eraserDragMode === 'move') {
+          setEraserRect({ ...eraserRect, x: point.x - eraserDragOffset.dx, y: point.y - eraserDragOffset.dy })
+        } else if (eraserDragMode?.startsWith('resize')) {
+          const r = normalizeEraserRect(eraserRect)
+          let x1 = r.x
+          let y1 = r.y
+          let x2 = r.x + r.w
+          let y2 = r.y + r.h
+
+          if (eraserDragMode === 'resize_nw') {
+            x1 = point.x
+            y1 = point.y
+          } else if (eraserDragMode === 'resize_ne') {
+            x2 = point.x
+            y1 = point.y
+          } else if (eraserDragMode === 'resize_sw') {
+            x1 = point.x
+            y2 = point.y
+          } else if (eraserDragMode === 'resize_se') {
+            x2 = point.x
+            y2 = point.y
+          }
+
+          setEraserRect({ x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) })
+        }
+      }
+      return
+    }
+
     if (isDrawing && startPoint) {
       const point = getScaledPoint(e)
       
@@ -335,6 +444,28 @@ export function DrawingCanvas({
   }
 
   const handleMouseUp = () => {
+    // Eraser tool: click simple = borrar círculo, arrastre = mantener rectángulo para confirmar
+    if (tool === 'eraser' && isEraserDragging) {
+      if (eraserRect) {
+        const normalized = normalizeEraserRect(eraserRect)
+        const absW = normalized.w
+        const absH = normalized.h
+        
+        // Si el rectángulo es muy pequeño (< 5px), tratar como click simple = borrar círculo
+        if (eraserDragMode === 'draw' && absW < 5 && absH < 5 && onEraseCircle) {
+          onEraseCircle({ cx: normalized.x, cy: normalized.y, r: eraserRadius })
+          setEraserRect(null)
+        } else {
+          setEraserRect(normalized)
+        }
+        // Si el rectángulo es mayor, mantenerlo para que el usuario pueda ajustarlo y confirmar con Enter
+        // No hacer nada aquí - el usuario debe presionar Enter para confirmar
+      }
+      setIsEraserDragging(false)
+      setEraserDragMode(null)
+      return
+    }
+
     if (isResizing) {
       // Commit resize: aplicar offset acumulado de una sola vez (prioridad sobre drag)
       if (onDrawingUpdate && selectedDrawingIds.length === 1 && (resizeOffset.dx !== 0 || resizeOffset.dy !== 0)) {
@@ -415,6 +546,9 @@ export function DrawingCanvas({
           return !(bb.x2 < sx1 || bb.x1 > sx2 || bb.y2 < sy1 || bb.y1 > sy2)
         }).map(d => d.id)
         onDrawingSelect(ids)
+      } else if (selectedDrawingIds.length > 0) {
+        // Click vacío corto: limpiar selección
+        onDrawingSelect([])
       }
       setMarqueeStart(null)
       setMarqueeEnd(null)
@@ -551,9 +685,29 @@ export function DrawingCanvas({
         return
       }
       
+      // Cancelar borrador (rectángulo de selección)
+      if (tool === 'eraser' && eraserRect) {
+        setEraserRect(null)
+        setEraserDragMode(null)
+        return
+      }
+      
       setTextPosition(null)
       setTextInput('')
       onDrawingSelect([])
+    }
+    
+    // Enter para confirmar borrado de rectángulo
+    if (e.key === 'Enter' && tool === 'eraser' && eraserRect && onEraseRect) {
+      e.preventDefault()
+      const normalized = normalizeEraserRect(eraserRect)
+      const { x, y, w, h } = normalized
+      
+      if (w > 5 && h > 5) {
+        onEraseRect({ x, y, w, h })
+      }
+      setEraserRect(null)
+      setEraserDragMode(null)
     }
     
     // Ctrl+Z para deshacer último punto de polilínea
@@ -1003,6 +1157,56 @@ export function DrawingCanvas({
         </>
       )
     }
+
+    if (tool === 'eraser') {
+      return (
+        <>
+          {eraserRect && (() => {
+            const r = normalizeEraserRect(eraserRect)
+            const x1 = r.x * scale
+            const y1 = r.y * scale
+            const x2 = (r.x + r.w) * scale
+            const y2 = (r.y + r.h) * scale
+            return (
+              <>
+                <rect
+                  x={x1}
+                  y={y1}
+                  width={r.w * scale}
+                  height={r.h * scale}
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  fill="rgba(239, 68, 68, 0.12)"
+                  strokeDasharray="5,5"
+                />
+                {[{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x1, y: y2 }, { x: x2, y: y2 }].map((p, idx) => (
+                  <rect
+                    key={`eraser-handle-${idx}`}
+                    x={p.x - 4}
+                    y={p.y - 4}
+                    width={8}
+                    height={8}
+                    fill="#ffffff"
+                    stroke="#ef4444"
+                    strokeWidth={1.5}
+                  />
+                ))}
+              </>
+            )
+          })()}
+          {eraserPreview && (
+            <circle
+              cx={eraserPreview.x * scale}
+              cy={eraserPreview.y * scale}
+              r={eraserRadius * scale}
+              stroke="#ef4444"
+              strokeWidth={1.5}
+              fill="rgba(239, 68, 68, 0.08)"
+            />
+          )}
+        </>
+      )
+    }
     
     if (!isDrawing || !startPoint || !currentPoint) return null
 
@@ -1090,7 +1294,16 @@ export function DrawingCanvas({
       style={{
         width: imageSize.width * scale,
         height: imageSize.height * scale,
-        cursor: tool === 'select' ? 'default' : tool === 'add_text_box' ? 'text' : tool === 'place_snippet' ? 'copy' : 'crosshair',
+        cursor:
+          tool === 'select'
+            ? 'default'
+            : tool === 'add_text_box'
+              ? 'text'
+              : tool === 'place_snippet'
+                ? 'copy'
+                : tool === 'eraser'
+                  ? 'none'
+                  : 'crosshair',
       }}
       onMouseDownCapture={handleMouseDown}
       onMouseMove={handleMouseMove}

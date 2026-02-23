@@ -82,6 +82,12 @@ export function SnippetInspector({
     setIndividualFontSize(size)
   }
 
+  const handleIndividualTextColor = (idx: number, color: string) => {
+    const next = [...ocrDraft]
+    next[idx] = { ...next[idx], text_color: color }
+    onOcrDraftChange(next)
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Tabs */}
@@ -230,18 +236,30 @@ export function SnippetInspector({
                       onClick={(e) => e.stopPropagation()}
                     />
                     {selectedOcrIdx === idx && (
-                      <div className="flex items-center gap-2 mt-1 pt-1 border-t">
-                        <span className="text-[10px] text-gray-500">Tamaño individual:</span>
-                        <select
-                          className="border rounded px-1 py-0.5 text-[10px]"
-                          value={individualFontSize ?? 100}
-                          onChange={(e) => handleIndividualFontSize(idx, Number(e.target.value))}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {[50, 75, 100, 125, 150, 200].map((s) => (
-                            <option key={s} value={s}>{s}%</option>
-                          ))}
-                        </select>
+                      <div className="mt-1 pt-1 border-t space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-500">Tamaño individual:</span>
+                          <select
+                            className="border rounded px-1 py-0.5 text-[10px]"
+                            value={individualFontSize ?? 100}
+                            onChange={(e) => handleIndividualFontSize(idx, Number(e.target.value))}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {[50, 75, 100, 125, 150, 200].map((s) => (
+                              <option key={s} value={s}>{s}%</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-500">Color texto:</span>
+                          <input
+                            type="color"
+                            value={det.text_color || '#000000'}
+                            onChange={(e) => handleIndividualTextColor(idx, e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-6 h-5 border rounded cursor-pointer"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>

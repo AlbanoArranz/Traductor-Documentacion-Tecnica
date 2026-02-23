@@ -14,6 +14,9 @@ interface SnippetDrawingEditorProps {
   strokeColor: string
   strokeWidth: number
   fillColor: string | null
+  eraserRadius?: number
+  onEraseRect?: (rect: { x: number; y: number; w: number; h: number }) => void
+  onEraseCircle?: (circle: { cx: number; cy: number; r: number }) => void
 }
 
 export function SnippetDrawingEditor({ 
@@ -26,6 +29,9 @@ export function SnippetDrawingEditor({
   strokeColor,
   strokeWidth,
   fillColor,
+  eraserRadius,
+  onEraseRect,
+  onEraseCircle,
 }: SnippetDrawingEditorProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
 
@@ -117,6 +123,9 @@ export function SnippetDrawingEditor({
             }
             onChange([...elements, item])
           }}
+          eraserRadius={eraserRadius}
+          onEraseRect={onEraseRect}
+          onEraseCircle={onEraseCircle}
         />
     </div>
   )
